@@ -94,10 +94,14 @@ class AccountMove(models.Model):
                 if (old_state_value != new_state_value and 
                     new_state_value == 'posted' and 
                     not record.x_whatsapp_invoice_sent):
+                    _logger.info("Tentative d'envoi automatique de la facture %s (état: %s -> %s)", 
+                               record.name, old_state_value, new_state_value)
                     try:
                         record._send_whatsapp_invoice()
                     except Exception as e:
                         _logger.warning("Erreur lors de l'envoi de la facture WhatsApp pour %s: %s", record.name, str(e))
+                elif old_state_value != new_state_value and new_state_value == 'posted':
+                    _logger.info("Facture %s déjà envoyée (x_whatsapp_invoice_sent=True), envoi ignoré", record.name)
                 
                 # Si le montant résiduel a changé, envoie un message
                 old_residual_value = old_residual.get(record.id)
@@ -207,17 +211,21 @@ class AccountMove(models.Model):
             raise ValidationError(_("Aucune configuration WhatsApp active trouvée."))
         
         try:
-            # S'assure que les liens de paiement existent
-            if hasattr(self, '_ensure_payment_links'):
-                self._ensure_payment_links()
-            elif not self.payment_link_wave or not self.payment_link_orange_money:
-                # Si la méthode n'existe pas, on génère les liens si possible
-                if hasattr(self, 'transaction_id') and self.transaction_id:
-                    base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-                    if not self.payment_link_wave:
-                        self.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={self.transaction_id}"
-                    if not self.payment_link_orange_money:
-                        self.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={self.transaction_id}"
+            # Vérifie si les attributs de paiement existent (module res_api_rental)
+            has_payment_links = hasattr(self, 'payment_link_wave') and hasattr(self, 'payment_link_orange_money')
+            
+            # S'assure que les liens de paiement existent si les attributs sont disponibles
+            if has_payment_links:
+                if hasattr(self, '_ensure_payment_links'):
+                    self._ensure_payment_links()
+                elif not self.payment_link_wave or not self.payment_link_orange_money:
+                    # Si la méthode n'existe pas, on génère les liens si possible
+                    if hasattr(self, 'transaction_id') and self.transaction_id:
+                        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '')
+                        if not self.payment_link_wave:
+                            self.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={self.transaction_id}"
+                        if not self.payment_link_orange_money:
+                            self.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={self.transaction_id}"
             
             # Construit le message avec les détails de la facture
             details_message = f"📋 Détails de la facture {self.name}\n\n"
@@ -322,15 +330,20 @@ class AccountMove(models.Model):
             # WhatsApp exige entre 1 et 3 boutons
             buttons = []
             
-            # Bouton "Payer" si montant résiduel > 0
-            if self.amount_residual > 0:
-                buttons.append({
-                    "type": "reply",
-                    "reply": {
-                        "id": f"btn_pay_invoice_{self.id}",
-                        "title": "Payer"
-                    }
-                })
+            # Bouton "Payer" si montant résiduel > 0 ET si les attributs de paiement existent
+            if self.amount_residual > 0 and has_payment_links:
+                # Vérifie que les liens de paiement sont disponibles
+                payment_link_wave = getattr(self, 'payment_link_wave', None)
+                payment_link_orange = getattr(self, 'payment_link_orange_money', None)
+                
+                if payment_link_wave or payment_link_orange:
+                    buttons.append({
+                        "type": "reply",
+                        "reply": {
+                            "id": f"btn_pay_invoice_{self.id}",
+                            "title": "Payer"
+                        }
+                    })
             
             # Bouton "Télécharger PDF" si disponible
             if pdf_url:
@@ -342,23 +355,20 @@ class AccountMove(models.Model):
                     }
                 })
             
-            # Si aucun bouton n'est disponible, on en ajoute un par défaut pour que le message soit interactif
-            if not buttons:
-                # Ajoute un bouton "Voir détails" par défaut pour que le message soit toujours interactif
-                buttons.append({
-                    "type": "reply",
-                    "reply": {
-                        "id": f"btn_view_invoice_{self.id}",
-                        "title": "Voir détails"
-                    }
-                })
-            
-            # Envoie toujours un message interactif avec au moins 1 bouton
-            result = whatsapp_config.send_interactive_message(
-                to_phone=phone,
-                body_text=details_message,
-                buttons=buttons
-            )
+            # Envoie le message : interactif si boutons, texte sinon
+            if buttons:
+                # Message interactif avec bouton(s) - WhatsApp exige entre 1 et 3 boutons
+                result = whatsapp_config.send_interactive_message(
+                    to_phone=phone,
+                    body_text=details_message,
+                    buttons=buttons
+                )
+            else:
+                # Message texte simple si pas de boutons disponibles
+                result = whatsapp_config.send_text_to_partner(
+                    partner_id=self.partner_id.id,
+                    message_text=details_message
+                )
             
             # Crée ou met à jour la conversation
             conversation = self.env['whatsapp.conversation'].search([
@@ -465,21 +475,27 @@ class AccountMove(models.Model):
         """Envoie la facture en PDF par WhatsApp lorsqu'elle est validée"""
         self.ensure_one()
         
+        _logger.info("Début de l'envoi WhatsApp pour la facture %s", self.name)
+        
         # Vérifie si la facture a déjà été envoyée (évite les doublons) - VÉRIFICATION EN PREMIER
         # Utilise sudo() pour vérifier même si l'utilisateur n'a pas les droits
         if self.sudo().x_whatsapp_invoice_sent:
-            _logger.info("Facture %s déjà envoyée par WhatsApp, envoi ignoré", self.name)
+            _logger.info("Facture %s déjà envoyée par WhatsApp (x_whatsapp_invoice_sent=True), envoi ignoré", self.name)
             return
         
         # Vérifie qu'il y a un partenaire avec un numéro de téléphone
         if not self.partner_id:
+            _logger.warning("Facture %s n'a pas de partenaire associé, envoi WhatsApp annulé", self.name)
             return
         
         # Vérifie si le partenaire a un numéro de téléphone
         phone = self.partner_id.phone or self.partner_id.mobile
         if not phone:
-            _logger.info("Pas de numéro de téléphone pour le partenaire %s, facture WhatsApp non envoyée", self.partner_id.name)
+            _logger.warning("Partenaire %s (ID: %s) n'a pas de numéro de téléphone, facture %s non envoyée", 
+                         self.partner_id.name, self.partner_id.id, self.name)
             return
+        
+        _logger.info("Numéro de téléphone trouvé pour le partenaire %s: %s", self.partner_id.name, phone)
         
         # Récupère la configuration WhatsApp active
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
@@ -487,8 +503,12 @@ class AccountMove(models.Model):
             # Ne log pas d'avertissement en mode test
             is_test_mode = config.get('test_enable') or config.get('test_file') or self.env.context.get('test_mode')
             if not is_test_mode:
-                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer la facture")
+                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer la facture %s", self.name)
+            else:
+                _logger.info("Mode test détecté, configuration WhatsApp non requise")
             return
+        
+        _logger.info("Configuration WhatsApp active trouvée (ID: %s)", whatsapp_config.id)
         
         try:
             # Nettoie le numéro de téléphone
@@ -585,7 +605,11 @@ class AccountMove(models.Model):
                     )
                     # Marque immédiatement comme envoyé si succès
                     if isinstance(result, dict) and result.get('success'):
+                        _logger.info("Message texte envoyé avec succès pour la facture %s (sans PDF)", self.name)
                         self._mark_invoice_sent()
+                    else:
+                        _logger.warning("Échec de l'envoi du message texte pour la facture %s: %s", 
+                                      self.name, result.get('error', 'Erreur inconnue') if isinstance(result, dict) else 'Résultat invalide')
                     pdf_content = None
             
             # Si on a un PDF, continue avec le traitement
@@ -690,6 +714,11 @@ class AccountMove(models.Model):
                                 
                                 _logger.info("Tentative d'envoi du PDF directement pour la facture %s avec URL: %s", self.name, pdf_url)
                                 
+                                # Vérifie que l'URL n'est pas localhost (WhatsApp ne peut pas accéder aux URLs locales)
+                                if 'localhost' in pdf_url or '127.0.0.1' in pdf_url or '::1' in pdf_url:
+                                    _logger.warning("URL localhost détectée (%s), impossible d'envoyer le document directement. Utilisation du bouton de téléchargement.", pdf_url)
+                                    raise Exception("URL localhost non accessible par WhatsApp")
+                                
                                 # send_document_message retourne data (peut être None en cas d'erreur)
                                 # ou un dict avec les données de réponse
                                 result = whatsapp_config.send_document_message(
@@ -716,23 +745,52 @@ class AccountMove(models.Model):
                                     self._mark_invoice_sent()
                                     
                             except Exception as e2:
-                                _logger.warning("Impossible d'envoyer le PDF, erreur: %s. Envoi du lien de téléchargement.", str(e2))
-                                # Dernier fallback : message texte avec lien
+                                _logger.warning("Impossible d'envoyer le PDF, erreur: %s. Envoi du message interactif avec bouton de téléchargement.", str(e2))
+                                # Dernier fallback : message interactif avec bouton "Télécharger"
                                 message = f"Bonjour {self.partner_id.name},\n\n"
                                 message += f"Votre facture {self.name} a été validée.\n\n"
                                 message += f"Montant total : {self.amount_total:.0f} F CFA\n"
                                 if self.invoice_date:
                                     message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
-                                message += f"\nTélécharger la facture : {pdf_url}"
+                                message += "\nCliquez sur le bouton ci-dessous pour télécharger votre facture."
                                 message += "\n\nMerci de votre confiance !"
                                 
-                                result = whatsapp_config.send_text_to_partner(
-                                    partner_id=self.partner_id.id,
-                                    message_text=message
-                                )
-                                # Marque immédiatement comme envoyé si succès
-                                if isinstance(result, dict) and result.get('success'):
-                                    self._mark_invoice_sent()
+                                # Crée un bouton "Télécharger" qui déclenchera l'action de téléchargement
+                                buttons = [{
+                                    "type": "reply",
+                                    "reply": {
+                                        "id": f"btn_download_invoice_{self.id}",
+                                        "title": "Télécharger facture"
+                                    }
+                                }]
+                                
+                                try:
+                                    result = whatsapp_config.send_interactive_message(
+                                        to_phone=phone,
+                                        body_text=message,
+                                        buttons=buttons
+                                    )
+                                    # Marque immédiatement comme envoyé si succès
+                                    if isinstance(result, dict) and result.get('success'):
+                                        self._mark_invoice_sent()
+                                except Exception as e3:
+                                    _logger.warning("Échec de l'envoi du message interactif, envoi du message texte avec lien: %s", str(e3))
+                                    # Dernier fallback : message texte avec lien
+                                    message_text = f"Bonjour {self.partner_id.name},\n\n"
+                                    message_text += f"Votre facture {self.name} a été validée.\n\n"
+                                    message_text += f"Montant total : {self.amount_total:.0f} F CFA\n"
+                                    if self.invoice_date:
+                                        message_text += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
+                                    message_text += f"\nTélécharger la facture : {pdf_url}"
+                                    message_text += "\n\nMerci de votre confiance !"
+                                    
+                                    result = whatsapp_config.send_text_to_partner(
+                                        partner_id=self.partner_id.id,
+                                        message_text=message_text
+                                    )
+                                    # Marque immédiatement comme envoyé si succès
+                                    if isinstance(result, dict) and result.get('success'):
+                                        self._mark_invoice_sent()
                     else:
                         # Pas d'URL de base, envoie juste le message texte
                         message = f"Bonjour {self.partner_id.name},\n\n"
@@ -751,7 +809,8 @@ class AccountMove(models.Model):
                             self._mark_invoice_sent()
                 except Exception as e:
                     _logger.warning("Erreur lors de la création de l'attachement PDF: %s", str(e))
-                    # En cas d'erreur, envoie juste le message texte
+                    # En cas d'erreur, essaie d'envoyer un message interactif avec bouton
+                    # Si le PDF n'a pas pu être généré, on ne peut pas créer de lien, donc on envoie juste un message texte
                     message = f"Bonjour {self.partner_id.name},\n\n"
                     message += f"Votre facture {self.name} a été validée.\n\n"
                     message += f"Montant total : {self.amount_total:.0f} F CFA\n"

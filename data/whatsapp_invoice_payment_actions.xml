@@ -43,16 +43,20 @@ if not invoice:
     ], order='create_date desc', limit=1)
 
 if invoice:
-    # S'assure que les liens de paiement existent
-    if hasattr(invoice, '_ensure_payment_links'):
-        invoice._ensure_payment_links()
-    elif not invoice.payment_link_wave or not invoice.payment_link_orange_money:
-        if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
-            base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-            if not invoice.payment_link_wave:
-                invoice.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={invoice.transaction_id}"
-            if not invoice.payment_link_orange_money:
-                invoice.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={invoice.transaction_id}"
+    # Vérifie si les attributs de paiement existent (module res_api_rental)
+    has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
+    
+    # S'assure que les liens de paiement existent si les attributs sont disponibles
+    if has_payment_links:
+        if hasattr(invoice, '_ensure_payment_links'):
+            invoice._ensure_payment_links()
+        elif not getattr(invoice, 'payment_link_wave', None) or not getattr(invoice, 'payment_link_orange_money', None):
+            if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
+                base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
+                if not getattr(invoice, 'payment_link_wave', None):
+                    invoice.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={invoice.transaction_id}"
+                if not getattr(invoice, 'payment_link_orange_money', None):
+                    invoice.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={invoice.transaction_id}"
     
     # Envoie un message avec les options de paiement
     if message.config_id:
@@ -60,24 +64,28 @@ if invoice:
         payment_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
         payment_message += "Choisissez votre méthode de paiement :"
         
-        # Crée deux boutons : Wave et Orange Money
+        # Crée deux boutons : Wave et Orange Money (seulement si les attributs existent)
         buttons = []
-        if invoice.payment_link_wave:
-            buttons.append({
-                "type": "reply",
-                "reply": {
-                    "id": f"btn_pay_wave_{invoice.id}",
-                    "title": "Payer avec Wave"
-                }
-            })
-        if invoice.payment_link_orange_money:
-            buttons.append({
-                "type": "reply",
-                "reply": {
-                    "id": f"btn_pay_orange_{invoice.id}",
-                    "title": "Payer avec Orange Money"
-                }
-            })
+        if has_payment_links:
+            payment_link_wave = getattr(invoice, 'payment_link_wave', None)
+            payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
+            
+            if payment_link_wave:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_wave_{invoice.id}",
+                        "title": "Payer avec Wave"
+                    }
+                })
+            if payment_link_orange:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_orange_{invoice.id}",
+                        "title": "Payer avec Orange Money"
+                    }
+                })
         
         # WhatsApp exige entre 1 et 3 boutons pour les messages interactifs
         if len(buttons) > 0:
@@ -165,15 +173,22 @@ if not invoice:
     ], order='create_date desc', limit=1)
 
 if invoice:
-    # S'assure que le lien Wave existe
-    if hasattr(invoice, '_ensure_payment_links'):
-        invoice._ensure_payment_links()
-    elif not invoice.payment_link_wave:
-        if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
-            base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-            invoice.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={invoice.transaction_id}"
+    # Vérifie si les attributs de paiement existent
+    has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
     
-    if invoice.payment_link_wave:
+    # S'assure que le lien Wave existe si les attributs sont disponibles
+    payment_link_wave = None
+    if has_payment_links:
+        if hasattr(invoice, '_ensure_payment_links'):
+            invoice._ensure_payment_links()
+        elif not getattr(invoice, 'payment_link_wave', None):
+            if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
+                base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
+                invoice.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={invoice.transaction_id}"
+        
+        payment_link_wave = getattr(invoice, 'payment_link_wave', None)
+    
+    if payment_link_wave:
         # Envoie le lien de paiement Wave
         if message.config_id:
             wave_message = f"💳 Paiement Wave pour la facture {invoice.name}\n\n"
@@ -251,15 +266,22 @@ if not invoice:
     ], order='create_date desc', limit=1)
 
 if invoice:
-    # S'assure que le lien Orange Money existe
-    if hasattr(invoice, '_ensure_payment_links'):
-        invoice._ensure_payment_links()
-    elif not invoice.payment_link_orange_money:
-        if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
-            base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-            invoice.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={invoice.transaction_id}"
+    # Vérifie si les attributs de paiement existent
+    has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
     
-    if invoice.payment_link_orange_money:
+    # S'assure que le lien Orange Money existe si les attributs sont disponibles
+    payment_link_orange = None
+    if has_payment_links:
+        if hasattr(invoice, '_ensure_payment_links'):
+            invoice._ensure_payment_links()
+        elif not getattr(invoice, 'payment_link_orange_money', None):
+            if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
+                base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
+                invoice.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={invoice.transaction_id}"
+        
+        payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
+    
+    if payment_link_orange:
         # Envoie le lien de paiement Orange Money
         if message.config_id:
             orange_message = f"💳 Paiement Orange Money pour la facture {invoice.name}\n\n"

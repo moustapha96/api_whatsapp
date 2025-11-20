@@ -25,6 +25,7 @@
         "data/whatsapp_order_validation_actions.xml",
         "data/whatsapp_order_validation_actions_v2.xml",
         "data/whatsapp_order_details_actions.xml",
+        "data/whatsapp_order_download_action.xml",
         "data/whatsapp_invoice_validation_actions.xml",
         "data/whatsapp_invoice_download_action.xml",
         "data/whatsapp_invoice_payment_actions.xml",

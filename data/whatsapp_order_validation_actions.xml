@@ -1,159 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Actions de boutons pour la validation de commande -->
 <odoo>
-    <!-- Action pour valider une commande -->
+    <!-- Action pour valider une commande (ANCIENNE VERSION - DÉSACTIVÉE) -->
     <record id="action_btn_validate_order" model="whatsapp.button.action">
-        <field name="name">Validation de commande</field>
+        <field name="name">Validation de commande (ancienne)</field>
         <field name="button_id">btn_validate_order</field>
         <field name="action_type">custom_python</field>
-        <field name="python_code"><![CDATA[# Récupère la commande associée au message
-import json
-import re
-
-# Cherche dans les messages précédents du même numéro avec le template order_validation
-previous_messages = env['whatsapp.message'].search([
-    ('phone', '=', message.phone),
-    ('direction', '=', 'out'),
-    ('template_name', '=', 'order_validation'),
-    ('create_date', '<=', message.create_date)
-], order='create_date desc', limit=1)
-
-order = None
-
-if previous_messages and previous_messages.template_components:
-    try:
-        components = json.loads(previous_messages.template_components)
-        if components and len(components) > 0:
-            body_params = components[0].get('parameters', [])
-            if len(body_params) > 0:
-                # Le premier paramètre ({{1}}) est le numéro de commande
-                order_number = body_params[0].get('text', '')
-                
-                # Cherche la commande par numéro
-                order = env['sale.order'].search([
-                    ('name', '=', order_number)
-                ], limit=1)
-    except:
-        pass
-
-# Si pas trouvé, cherche par numéro de téléphone du partenaire
-if not order:
-    phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
-    if not phone_clean.startswith('+'):
-        phone_clean = '+' + phone_clean.lstrip('+')
-    
-    order = env['sale.order'].search([
-        ('partner_id.phone', 'ilike', phone_clean),
-        ('x_whatsapp_validation_sent', '=', True),
-        ('x_whatsapp_validated', '=', False),
-        ('x_whatsapp_rejected', '=', False),
-        ('state', 'not in', ['cancel', 'done'])
-    ], order='create_date desc', limit=1)
-
-if order:
-    # Met à jour l'état de la commande
-    order.write({
-        'state': 'sale',  # État "Confirmé"
-        'x_whatsapp_validated': True,
-    })
-    
-    # Envoie un message de confirmation
-    if message.config_id:
-        try:
-            message.config_id.send_text_message(
-                message.phone,
-                f"✅ Commande {order.name} validée avec succès !\n\nMontant : {order.amount_total:.2f} €\n\nMerci de votre confiance."
-            )
-        except:
-            pass
-    
-    # Log
-    _logger.info("Commande %s validée via WhatsApp par %s", order.name, message.phone)
-    message.content = f"Commande {order.name} validée"
-else:
-    _logger.warning("Aucune commande trouvée pour validation via WhatsApp - Numéro: %s", message.phone)
-    message.content = "Aucune commande trouvée pour validation"
-]]></field>
-        <field name="sequence">10</field>
-        <field name="active">True</field>
-        <field name="description">Valide une commande de vente lorsque le client clique sur "Valider"</field>
+        <field name="active">False</field>
+        <field name="sequence">100</field>
+        <field name="description">Ancienne version - Utilisez action_btn_validate_order_v2</field>
     </record>
 
-    <!-- Action pour rejeter une commande -->
+    <!-- Action pour rejeter une commande (ANCIENNE VERSION - DÉSACTIVÉE) -->
     <record id="action_btn_reject_order" model="whatsapp.button.action">
-        <field name="name">Rejet de commande</field>
+        <field name="name">Rejet de commande (ancienne)</field>
         <field name="button_id">btn_reject_order</field>
         <field name="action_type">custom_python</field>
-        <field name="python_code"><![CDATA[# Récupère la commande associée au message
-import json
-
-# Cherche dans les messages précédents du même numéro avec le template order_validation
-previous_messages = env['whatsapp.message'].search([
-    ('phone', '=', message.phone),
-    ('direction', '=', 'out'),
-    ('template_name', '=', 'order_validation'),
-    ('create_date', '<=', message.create_date)
-], order='create_date desc', limit=1)
-
-order = None
-
-if previous_messages and previous_messages.template_components:
-    try:
-        components = json.loads(previous_messages.template_components)
-        if components and len(components) > 0:
-            body_params = components[0].get('parameters', [])
-            if len(body_params) > 0:
-                # Le premier paramètre ({{1}}) est le numéro de commande
-                order_number = body_params[0].get('text', '')
-                
-                # Cherche la commande par numéro
-                order = env['sale.order'].search([
-                    ('name', '=', order_number)
-                ], limit=1)
-    except:
-        pass
-
-# Si pas trouvé, cherche par numéro de téléphone du partenaire
-if not order:
-    phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
-    if not phone_clean.startswith('+'):
-        phone_clean = '+' + phone_clean.lstrip('+')
-    
-    order = env['sale.order'].search([
-        ('partner_id.phone', 'ilike', phone_clean),
-        ('x_whatsapp_validation_sent', '=', True),
-        ('x_whatsapp_validated', '=', False),
-        ('x_whatsapp_rejected', '=', False),
-        ('state', 'not in', ['cancel', 'done'])
-    ], order='create_date desc', limit=1)
-
-if order:
-    # Met à jour l'état de la commande
-    order.write({
-        'state': 'cancel',  # État "Annulé"
-        'x_whatsapp_rejected': True,
-    })
-    
-    # Envoie un message de confirmation
-    if message.config_id:
-        try:
-            message.config_id.send_text_message(
-                message.phone,
-                f"❌ Commande {order.name} rejetée.\n\nN'hésitez pas à nous contacter si vous avez des questions ou souhaitez modifier votre commande."
-            )
-        except:
-            pass
-    
-    # Log
-    _logger.info("Commande %s rejetée via WhatsApp par %s", order.name, message.phone)
-    message.content = f"Commande {order.name} rejetée"
-else:
-    _logger.warning("Aucune commande trouvée pour rejet via WhatsApp - Numéro: %s", message.phone)
-    message.content = "Aucune commande trouvée pour rejet"
-]]></field>
-        <field name="sequence">20</field>
-        <field name="active">True</field>
-        <field name="description">Rejette une commande de vente lorsque le client clique sur "Rejeter"</field>
+        <field name="active">False</field>
+        <field name="sequence">100</field>
+        <field name="description">Ancienne version - Utilisez action_btn_cancel_order_v2</field>
     </record>
 </odoo>
 

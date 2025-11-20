@@ -28,6 +28,12 @@
                 <field name="wa_status"/>
                 <field name="wa_message_id"/>
                 <field name="content"/>
+                <button name="action_reply_message" 
+                        string="Répondre" 
+                        type="object" 
+                        icon="fa-reply"
+                        attrs="{'invisible': [('direction', '!=', 'in')]}"
+                        class="btn-primary"/>
             </tree>
         </field>
     </record>
@@ -37,6 +43,15 @@
         <field name="model">whatsapp.message</field>
         <field name="arch" type="xml">
             <form string="Message WhatsApp">
+                <header>
+                    <button name="action_reply_message" 
+                            string="Répondre" 
+                            type="object" 
+                            class="oe_highlight"
+                            icon="fa-reply"
+                            attrs="{'invisible': [('direction', '!=', 'in')]}"
+                            help="Répondre à ce message"/>
+                </header>
                 <sheet>
                     <group>
                         <field name="direction"/>

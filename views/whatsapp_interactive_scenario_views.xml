@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Vue liste des scénarios interactifs -->
+    <record id="view_whatsapp_interactive_scenario_tree" model="ir.ui.view">
+        <field name="name">whatsapp.interactive.scenario.tree</field>
+        <field name="model">whatsapp.interactive.scenario</field>
+        <field name="arch" type="xml">
+            <tree string="Scénarios interactifs" decoration-success="active == True" decoration-muted="active == False">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="active" widget="boolean_toggle"/>
+                <field name="button_1_title" string="Bouton 1"/>
+                <field name="button_2_title" string="Bouton 2"/>
+                <field name="button_3_title" string="Bouton 3"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Vue formulaire des scénarios interactifs -->
+    <record id="view_whatsapp_interactive_scenario_form" model="ir.ui.view">
+        <field name="name">whatsapp.interactive.scenario.form</field>
+        <field name="model">whatsapp.interactive.scenario</field>
+        <field name="arch" type="xml">
+            <form string="Scénario interactif WhatsApp">
+                <header>
+                    <button name="send_test_scenario" string="Envoyer un test" type="object" class="oe_highlight" icon="fa-paper-plane"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="toggle_active" type="object" class="oe_stat_button" icon="fa-archive" attrs="{'invisible': [('active', '=', False)]}">
+                            <field name="active" widget="boolean_button" options="{'terminology': 'archive'}"/>
+                        </button>
+                    </div>
+                    
+                    <group>
+                        <group>
+                            <field name="name" placeholder="Ex: Validation commande, Support client, etc."/>
+                            <field name="sequence" widget="handle"/>
+                            <field name="active"/>
+                            <field name="config_id" 
+                                   options="{'no_create': True, 'no_create_edit': True}"
+                                   widget="many2one"/>
+                        </group>
+                        <group>
+                            <field name="description" placeholder="Description du scénario..."/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Message initial" name="initial">
+                            <group>
+                                <field name="initial_message" 
+                                       placeholder="Saisissez le message initial qui sera envoyé avec les boutons..."
+                                       widget="text"
+                                       nolabel="1"
+                                       options="{'resizable': true}"/>
+                            </group>
+                        </page>
+
+                        <page string="Bouton 1" name="button1">
+                            <group>
+                                <group string="Configuration du bouton">
+                                    <field name="button_1_id" 
+                                           placeholder="Ex: btn_yes, btn_validate, btn_option1"
+                                           help="ID unique du bouton (utilisé pour identifier le clic)"/>
+                                    <field name="button_1_title" 
+                                           placeholder="Ex: Oui, Valider, Option 1"
+                                           help="Texte affiché sur le bouton (max 20 caractères)"/>
+                                </group>
+                                <group string="Réponse automatique">
+                                    <field name="button_1_response" 
+                                           placeholder="Message à envoyer automatiquement si ce bouton est cliqué..."
+                                           widget="text"
+                                           options="{'resizable': true}"/>
+                                    <field name="button_1_send_interactive" 
+                                           help="Si coché, la réponse sera un message interactif (nécessite configuration supplémentaire)"/>
+                                    <field name="button_1_next_scenario_id" 
+                                           options="{'no_create': True}"
+                                           widget="many2one"
+                                           placeholder="Sélectionner un scénario suivant (optionnel)"
+                                           help="Scénario à exécuter après ce bouton pour créer une conversation multi-étapes"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Bouton 2" name="button2">
+                            <group>
+                                <group string="Configuration du bouton">
+                                    <field name="button_2_id" 
+                                           placeholder="Ex: btn_no, btn_reject, btn_option2"
+                                           help="ID unique du bouton"/>
+                                    <field name="button_2_title" 
+                                           placeholder="Ex: Non, Rejeter, Option 2"
+                                           help="Texte affiché sur le bouton (max 20 caractères)"/>
+                                </group>
+                                <group string="Réponse automatique">
+                                    <field name="button_2_response" 
+                                           placeholder="Message à envoyer automatiquement si ce bouton est cliqué..."
+                                           widget="text"
+                                           options="{'resizable': true}"/>
+                                    <field name="button_2_send_interactive"/>
+                                    <field name="button_2_next_scenario_id" 
+                                           options="{'no_create': True}"
+                                           widget="many2one"
+                                           placeholder="Sélectionner un scénario suivant (optionnel)"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="Bouton 3" name="button3">
+                            <group>
+                                <group string="Configuration du bouton">
+                                    <field name="button_3_id" 
+                                           placeholder="Ex: btn_maybe, btn_cancel, btn_option3"
+                                           help="ID unique du bouton"/>
+                                    <field name="button_3_title" 
+                                           placeholder="Ex: Peut-être, Annuler, Option 3"
+                                           help="Texte affiché sur le bouton (max 20 caractères)"/>
+                                </group>
+                                <group string="Réponse automatique">
+                                    <field name="button_3_response" 
+                                           placeholder="Message à envoyer automatiquement si ce bouton est cliqué..."
+                                           widget="text"
+                                           options="{'resizable': true}"/>
+                                    <field name="button_3_send_interactive"/>
+                                    <field name="button_3_next_scenario_id" 
+                                           options="{'no_create': True}"
+                                           widget="many2one"
+                                           placeholder="Sélectionner un scénario suivant (optionnel)"/>
+                                </group>
+                            </group>
+                        </page>
+
+                        <page string="ℹ️ Aide" name="help">
+                            <div class="alert alert-info" role="alert">
+                                <h4><i class="fa fa-info-circle"/> Comment ça fonctionne ?</h4>
+                                <ol>
+                                    <li><strong>Message initial :</strong> Définissez le message qui sera envoyé avec les boutons</li>
+                                    <li><strong>Boutons :</strong> Configurez jusqu'à 3 boutons avec leurs IDs et titres</li>
+                                    <li><strong>Réponses automatiques :</strong> Définissez le message à envoyer quand chaque bouton est cliqué</li>
+                                    <li><strong>Scénarios suivants :</strong> Optionnellement, enchaînez avec un autre scénario pour créer des conversations multi-étapes</li>
+                                </ol>
+                            </div>
+                            <div class="alert alert-success" role="alert">
+                                <h4><i class="fa fa-lightbulb-o"/> Exemple d'utilisation</h4>
+                                <p><strong>Message initial :</strong> "Souhaitez-vous valider cette commande ?"</p>
+                                <p><strong>Bouton 1 :</strong> ID = "btn_yes", Titre = "Oui" → Réponse : "Votre commande a été validée !"</p>
+                                <p><strong>Bouton 2 :</strong> ID = "btn_no", Titre = "Non" → Réponse : "Votre commande a été annulée."</p>
+                            </div>
+                            <div class="alert alert-warning" role="alert">
+                                <h4><i class="fa fa-exclamation-triangle"/> Limitations</h4>
+                                <ul>
+                                    <li>Maximum 3 boutons par message (limitation WhatsApp)</li>
+                                    <li>Les titres de boutons sont limités à 20 caractères</li>
+                                    <li>Les IDs de boutons doivent être uniques dans le scénario</li>
+                                </ul>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action pour lister les scénarios -->
+    <record id="action_whatsapp_interactive_scenario" model="ir.actions.act_window">
+        <field name="name">Scénarios interactifs</field>
+        <field name="res_model">whatsapp.interactive.scenario</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Créez votre premier scénario interactif !
+            </p>
+            <p>
+                Les scénarios interactifs permettent de créer des messages avec boutons et des réponses automatiques.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="menu_whatsapp_interactive_scenario"
+              name="Scénarios interactifs"
+              parent="menu_whatsapp_root"
+              action="action_whatsapp_interactive_scenario"
+              sequence="30"/>
+
+    <!-- Wizard pour envoyer un scénario -->
+    <record id="view_send_scenario_wizard_form" model="ir.ui.view">
+        <field name="name">send.scenario.wizard.form</field>
+        <field name="model">whatsapp.send.scenario.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Envoyer un scénario interactif">
+                <group>
+                    <field name="scenario_id" 
+                           options="{'no_create': True}"
+                           widget="many2one"
+                           required="1"/>
+                    <field name="contact_id" 
+                           options="{'no_create': True}"
+                           widget="many2one"
+                           placeholder="Sélectionner un contact..."/>
+                    <field name="phone" 
+                           required="1"
+                           placeholder="+33612345678"
+                           widget="phone"/>
+                </group>
+                <footer>
+                    <button name="action_send_scenario" string="Envoyer" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                    <button string="Annuler" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action pour envoyer un scénario -->
+    <record id="action_send_scenario_wizard" model="ir.actions.act_window">
+        <field name="name">Envoyer un scénario interactif</field>
+        <field name="res_model">whatsapp.send.scenario.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_send_scenario"
+              name="Envoyer un scénario"
+              parent="menu_whatsapp_root"
+              action="action_send_scenario_wizard"
+              sequence="31"/>
+</odoo>
+

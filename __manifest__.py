@@ -23,6 +23,7 @@
         "data/whatsapp_button_action_examples.xml",
         "data/whatsapp_template_examples.xml",
         "data/whatsapp_order_validation_actions.xml",
+        "data/whatsapp_order_validation_actions_v2.xml",
         "data/whatsapp_order_details_actions.xml",
         "data/whatsapp_invoice_validation_actions.xml",
         "views/whatsapp_config_views.xml",
@@ -34,6 +35,7 @@
         "views/whatsapp_message_views.xml",
         "views/whatsapp_template_views.xml",
         "views/whatsapp_button_action_views.xml",
+        "views/whatsapp_interactive_scenario_views.xml",
         "views/sale_order_whatsapp_views.xml",  # Décommenter après vérification que le module sale est installé
     ],
     "installable": True,

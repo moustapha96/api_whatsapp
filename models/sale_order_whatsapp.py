@@ -109,11 +109,26 @@ class SaleOrder(models.Model):
             return
         
         try:
-            # Prépare un message simple avec le bouton "Voir détail"
-            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nCliquez sur le bouton ci-dessous pour voir les détails de votre commande."
+            # Prépare un message avec 3 boutons : Valider, Annuler, Voir détail
+            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nSouhaitez-vous valider ou annuler cette commande ?"
             
-            # Ajoute un bouton "Voir détail" pour afficher les produits
+            # Ajoute 3 boutons : Valider, Annuler, Voir détail
+            # L'ID de la commande est inclus dans l'ID du bouton pour l'identifier
             buttons = [
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_validate_order_{self.id}",
+                        "title": "Valider"
+                    }
+                },
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_cancel_order_{self.id}",
+                        "title": "Annuler"
+                    }
+                },
                 {
                     "type": "reply",
                     "reply": {
@@ -123,7 +138,7 @@ class SaleOrder(models.Model):
                 }
             ]
             
-            # Envoie le message interactif avec le bouton
+            # Envoie le message interactif avec les boutons
             phone = whatsapp_config._validate_phone_number(phone)
             result = whatsapp_config.send_interactive_message(
                 to_phone=phone,

@@ -7,5 +7,6 @@ from . import whatsapp_template
 from . import whatsapp_send_message
 from . import whatsapp_send_partner_message
 from . import whatsapp_button_action
+from . import whatsapp_interactive_scenario
 from . import sale_order_whatsapp
 from . import account_move_whatsapp

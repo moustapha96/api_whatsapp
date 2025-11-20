@@ -62,11 +62,21 @@ class WhatsappButtonAction(models.Model):
 
     description = fields.Text(string="Description")
 
-    def execute_action(self, message, contact=None):
-        """Exécute l'action définie"""
+    def execute_action(self, message, contact=None, button_id=None):
+        """Exécute l'action définie
+        
+        Args:
+            message: Message WhatsApp
+            contact: Contact (optionnel)
+            button_id: ID réel du bouton (avec ID de la commande si présent, optionnel)
+        """
         self.ensure_one()
         
-        _logger.info("Exécution de l'action %s pour le bouton %s", self.name, self.button_id)
+        # Utilise le button_id réel si fourni, sinon utilise celui de l'action
+        real_button_id = button_id or self.button_id
+        
+        _logger.info("Exécution de l'action %s pour le bouton %s (button_id réel: %s)", 
+                    self.name, self.button_id, real_button_id)
         
         try:
             if self.action_type == "send_message":
@@ -78,7 +88,7 @@ class WhatsappButtonAction(models.Model):
             elif self.action_type == "update_status":
                 return self._action_update_status(message, contact)
             elif self.action_type == "custom_python":
-                return self._action_custom_python(message, contact)
+                return self._action_custom_python(message, contact, real_button_id)
         except Exception as e:
             _logger.exception("Erreur lors de l'exécution de l'action %s : %s", self.name, e)
             raise ValidationError(_("Erreur lors de l'exécution de l'action : %s") % str(e))
@@ -150,24 +160,60 @@ class WhatsappButtonAction(models.Model):
         """Met à jour le statut du contact"""
         return self._action_update_contact(message, contact)
 
-    def _action_custom_python(self, message, contact=None):
-        """Exécute du code Python personnalisé"""
+    def _action_custom_python(self, message, contact=None, button_id=None):
+        """Exécute du code Python personnalisé
+        
+        Args:
+            message: Message WhatsApp
+            contact: Contact (optionnel)
+            button_id: ID réel du bouton (avec ID de la commande si présent)
+        """
         if not self.python_code:
             return {"success": False, "message": "Aucun code Python défini"}
         
         try:
             # Variables disponibles dans le contexte
-            env = self.env
-            button_id = self.button_id
+            import logging
+            import json
+            from odoo import fields
+            from odoo.exceptions import ValidationError
             
-            # Exécute le code
+            # Crée un logger pour le code Python
+            code_logger = logging.getLogger(__name__)
+            
+            # Utilise le button_id réel si fourni, sinon essaie de le récupérer depuis le message
+            real_button_id = button_id or self.button_id
+            
+            # Si le button_id n'a pas été fourni, essaie de le récupérer depuis le raw_payload
+            if not button_id and hasattr(message, 'raw_payload') and message.raw_payload:
+                try:
+                    payload = json.loads(message.raw_payload)
+                    interactive = payload.get('interactive', {})
+                    if interactive.get('type') == 'button_reply':
+                        button_reply = interactive.get('button_reply', {})
+                        if button_reply:
+                            # Utilise le button_id réel du message (avec l'ID si présent)
+                            real_button_id = button_reply.get('id', real_button_id)
+                    elif interactive.get('type') == 'list_reply':
+                        list_reply = interactive.get('list_reply', {})
+                        if list_reply:
+                            real_button_id = list_reply.get('id', real_button_id)
+                except:
+                    pass
+            
+            # Exécute le code avec toutes les variables nécessaires
             exec(self.python_code, {
-                'env': env,
+                'env': self.env,
                 'message': message,
                 'contact': contact,
-                'button_id': button_id,
+                'button_id': real_button_id,  # Button_id réel avec l'ID si présent
                 'self': self,
                 '_': _,
+                '_logger': code_logger,
+                'logging': logging,
+                'json': json,
+                'fields': fields,
+                'ValidationError': ValidationError,
             })
             return {"success": True, "message": "Code Python exécuté avec succès"}
         except Exception as e:

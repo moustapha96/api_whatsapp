@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exemples d'actions de boutons WhatsApp -->
+<odoo>
+    <!-- Exemple 1: Bouton Oui - Envoie un message de confirmation -->
+    <record id="action_btn_yes_confirm" model="whatsapp.button.action">
+        <field name="name">Confirmation Oui</field>
+        <field name="button_id">btn_yes</field>
+        <field name="action_type">send_message</field>
+        <field name="message_to_send">Merci pour votre confirmation ! Nous avons bien reçu votre réponse positive.</field>
+        <field name="sequence">10</field>
+        <field name="active">True</field>
+        <field name="description">Envoie un message de confirmation lorsque le client clique sur "Oui"</field>
+    </record>
+
+    <!-- Exemple 2: Bouton Non - Envoie un message de refus -->
+    <record id="action_btn_no_refuse" model="whatsapp.button.action">
+        <field name="name">Refus Non</field>
+        <field name="button_id">btn_no</field>
+        <field name="action_type">send_message</field>
+        <field name="message_to_send">Nous avons bien reçu votre réponse. N'hésitez pas à nous contacter si vous changez d'avis.</field>
+        <field name="sequence">20</field>
+        <field name="active">True</field>
+        <field name="description">Envoie un message lorsque le client clique sur "Non"</field>
+    </record>
+
+    <!-- Exemple 3: Bouton Contact - Demande les coordonnées -->
+    <record id="action_btn_contact" model="whatsapp.button.action">
+        <field name="name">Demande de contact</field>
+        <field name="button_id">btn_contact</field>
+        <field name="action_type">send_message</field>
+        <field name="message_to_send">Un de nos conseillers vous contactera dans les plus brefs délais. Merci de votre patience.</field>
+        <field name="sequence">30</field>
+        <field name="active">True</field>
+        <field name="description">Envoie un message de confirmation lorsqu'un client demande à être contacté</field>
+    </record>
+
+    <!-- Exemple 4: Bouton Info - Envoie des informations -->
+    <record id="action_btn_info" model="whatsapp.button.action">
+        <field name="name">Demande d'informations</field>
+        <field name="button_id">btn_info</field>
+        <field name="action_type">send_message</field>
+        <field name="message_to_send">Voici nos informations :\n📞 Téléphone: +33 1 23 45 67 89\n📧 Email: contact@example.com\n🌐 Site: www.example.com</field>
+        <field name="sequence">40</field>
+        <field name="active">True</field>
+        <field name="description">Envoie les informations de contact lorsque le client demande des infos</field>
+    </record>
+
+    <!-- Exemple 5: Code Python personnalisé - Met à jour le statut du contact -->
+    <record id="action_btn_custom_status" model="whatsapp.button.action">
+        <field name="name">Mise à jour statut (Python)</field>
+        <field name="button_id">btn_status</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"># Met à jour le statut du contact
+from datetime import datetime
+if contact:
+    # Ajoute une catégorie ou met à jour un champ personnalisé
+    contact.write({
+        'comment': f"Statut mis à jour via WhatsApp le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    })
+    # Envoie un message de confirmation
+    if message.config_id:
+        message.config_id.send_text_message(
+            contact.phone or message.phone,
+            "Votre statut a été mis à jour avec succès !"
+        )
+</field>
+        <field name="sequence">50</field>
+        <field name="active">True</field>
+        <field name="description">Exemple d'action Python personnalisée pour mettre à jour le contact</field>
+    </record>
+</odoo>
+

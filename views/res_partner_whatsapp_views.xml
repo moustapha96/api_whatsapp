@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/views/res_partner_whatsapp_views.xml -->
+<odoo>
+    <!-- Hérite de la vue formulaire du partenaire pour ajouter un bouton WhatsApp -->
+    <record id="view_partner_form_whatsapp_button" model="ir.ui.view">
+        <field name="name">res.partner.form.whatsapp</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <!-- Insère le header avec le bouton avant le sheet -->
+            <!-- Si un header existe déjà, Odoo le gérera correctement -->
+            <xpath expr="//form/sheet" position="before">
+                <header>
+                    <button name="%(api_whatsapp.action_send_whatsapp_partner_message)d"
+                            type="action"
+                            string="Envoyer WhatsApp"
+                            class="oe_highlight"
+                            icon="fa-whatsapp"
+                            attrs="{'invisible': ['&amp;', ('phone', '=', False), ('mobile', '=', False)]}"
+                            context="{'default_partner_id': active_id}"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+</odoo>
+

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/views/whatsapp_send_partner_message_views.xml -->
+<odoo>
+    <!-- Action pour envoyer un message à un partenaire -->
+    <record id="action_send_whatsapp_partner_message" model="ir.actions.act_window">
+        <field name="name">Envoyer un message WhatsApp au partenaire</field>
+        <field name="res_model">whatsapp.send.partner.message</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Vue formulaire pour envoyer un message à un partenaire -->
+    <record id="view_send_whatsapp_partner_message_form" model="ir.ui.view">
+        <field name="name">whatsapp.send.partner.message.form</field>
+        <field name="model">whatsapp.send.partner.message</field>
+        <field name="arch" type="xml">
+            <form string="Envoyer un message WhatsApp au partenaire">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="config_id" options="{'no_create': True, 'no_create_edit': True}"/>
+                            <field name="partner_id" options="{'no_create': True}" required="1"/>
+                            <field name="phone" required="1"/>
+                            <field name="preview_url"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="message" placeholder="Saisissez votre message ici..." nolabel="1"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_send_message" string="Envoyer" type="object" class="btn-primary"/>
+                    <button string="Annuler" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Menu pour envoyer un message à un partenaire -->
+    <menuitem id="menu_send_whatsapp_partner_message"
+              name="Envoyer message au partenaire"
+              parent="menu_whatsapp_root"
+              action="action_send_whatsapp_partner_message"
+              sequence="5"/>
+</odoo>
+

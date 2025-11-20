@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/views/whatsapp_button_action_views.xml -->
+<odoo>
+    <record id="action_whatsapp_button_action" model="ir.actions.act_window">
+        <field name="name">Actions de boutons WhatsApp</field>
+        <field name="res_model">whatsapp.button.action</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem id="menu_whatsapp_button_action"
+              name="Actions de boutons"
+              parent="menu_whatsapp_root"
+              action="action_whatsapp_button_action"
+              sequence="9"/>
+
+    <record id="view_whatsapp_button_action_tree" model="ir.ui.view">
+        <field name="name">whatsapp.button.action.tree</field>
+        <field name="model">whatsapp.button.action</field>
+        <field name="arch" type="xml">
+            <tree string="Actions de boutons">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="button_id"/>
+                <field name="action_type"/>
+                <field name="active"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_whatsapp_button_action_form" model="ir.ui.view">
+        <field name="name">whatsapp.button.action.form</field>
+        <field name="model">whatsapp.button.action</field>
+        <field name="arch" type="xml">
+            <form string="Action de bouton WhatsApp">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="button_id" placeholder="Ex: btn_yes, btn_no, btn_1"/>
+                            <field name="action_type"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Action - Envoyer un message" name="send_message" attrs="{'invisible': [('action_type', '!=', 'send_message')]}">
+                            <group>
+                                <field name="message_to_send" nolabel="1" placeholder="Message à envoyer automatiquement après le clic sur le bouton"/>
+                            </group>
+                        </page>
+                        <page string="Action - Mettre à jour contact" name="update_contact" attrs="{'invisible': [('action_type', '!=', 'update_contact')]}">
+                            <group>
+                                <field name="contact_field_to_update" placeholder="Ex: x_whatsapp_status, category_id"/>
+                                <field name="contact_field_value" placeholder="Valeur à définir"/>
+                            </group>
+                        </page>
+                        <page string="Action - Code Python" name="custom_python" attrs="{'invisible': [('action_type', '!=', 'custom_python')]}">
+                            <group>
+                                <field name="python_code" widget="text" nolabel="1" placeholder="# Variables disponibles: env, message, contact, button_id&#10;# Exemple:&#10;# if contact:&#10;#     contact.write({'x_whatsapp_status': 'confirmed'})"/>
+                            </group>
+                        </page>
+                        <page string="Description" name="description">
+                            <field name="description" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>
+

@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/views/whatsapp_send_message_views.xml -->
+<odoo>
+    <!-- Action pour envoyer un message simple -->
+    <record id="action_send_whatsapp_message" model="ir.actions.act_window">
+        <field name="name">Envoyer un message WhatsApp</field>
+        <field name="res_model">whatsapp.send.message</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Action pour envoyer un message via template -->
+    <record id="action_send_whatsapp_template" model="ir.actions.act_window">
+        <field name="name">Envoyer un message template WhatsApp</field>
+        <field name="res_model">whatsapp.send.template</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu pour envoyer un message simple - ouvre le wizard -->
+    <menuitem id="menu_send_whatsapp_message"
+              name="Envoyer un message"
+              parent="menu_whatsapp_root"
+              action="action_send_whatsapp_message"
+              sequence="2"/>
+
+    <!-- Menu pour envoyer un message via template - ouvre le wizard -->
+    <menuitem id="menu_send_whatsapp_template"
+              name="Envoyer un template"
+              parent="menu_whatsapp_root"
+              action="action_send_whatsapp_template"
+              sequence="3"/>
+
+    <!-- Vue formulaire pour envoyer un message simple -->
+    <record id="view_send_whatsapp_message_form" model="ir.ui.view">
+        <field name="name">whatsapp.send.message.form</field>
+        <field name="model">whatsapp.send.message</field>
+        <field name="arch" type="xml">
+            <form string="Envoyer un message WhatsApp">
+                <header>
+                    <button name="action_send_message" string="Envoyer le message" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <span class="fa fa-whatsapp" style="color: #25D366; margin-right: 10px;"/>
+                            Envoyer un message WhatsApp
+                        </h1>
+                    </div>
+                    
+                    <group>
+                        <group string="Configuration">
+                            <field name="config_id" 
+                                   options="{'no_create': True, 'no_create_edit': True}"
+                                   widget="many2one"/>
+                        </group>
+                        <group string="Destinataire">
+                            <field name="contact_id" 
+                                   options="{'no_create': True}"
+                                   widget="many2one"
+                                   placeholder="Sélectionner un contact..."/>
+                            <field name="phone" 
+                                   required="1"
+                                   placeholder="+33612345678"
+                                   widget="phone"/>
+                            <field name="preview_url" 
+                                   string="Aperçu des liens"
+                                   help="Active la prévisualisation des liens dans le message"/>
+                        </group>
+                    </group>
+                    
+                    <notebook>
+                        <page string="Message" name="message">
+                            <group col="1">
+                                <field name="message" 
+                                       placeholder="Saisissez votre message ici...&#10;&#10;Exemple :&#10;Bonjour,&#10;&#10;Votre commande est prête !&#10;Merci de votre confiance." 
+                                       nolabel="1"
+                                       widget="text"
+                                       options="{'resizable': true}"/>
+                            </group>
+                        </page>
+                        <page string="ℹ️ Informations" name="info">
+                            <div class="alert alert-warning" role="alert">
+                                <h4><i class="fa fa-exclamation-triangle"/> Important : Fenêtre de 24h</h4>
+                                <p><strong>Les messages texte simples ne peuvent être envoyés que dans les 24h après le dernier message du client.</strong></p>
+                                <p>Si le client n'a pas envoyé de message récemment, vous devez utiliser un <strong>template WhatsApp approuvé</strong>.</p>
+                            </div>
+                            <div class="alert alert-info" role="alert">
+                                <h4><i class="fa fa-info-circle"/> Format du numéro</h4>
+                                <p>Le numéro doit être au format international avec le préfixe <code>+</code>.</p>
+                                <p><strong>Exemples :</strong></p>
+                                <ul>
+                                    <li>France : <code>+33612345678</code></li>
+                                    <li>Burkina Faso : <code>+22670123456</code></li>
+                                </ul>
+                            </div>
+                            <div class="alert alert-success" role="alert">
+                                <h4><i class="fa fa-lightbulb-o"/> Astuce</h4>
+                                <p>Vous pouvez sélectionner un contact pour remplir automatiquement le numéro de téléphone.</p>
+                                <p>Si le contact n'a pas de numéro, vous pouvez le saisir manuellement.</p>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_send_message" string="Envoyer" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                    <button string="Annuler" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Vue formulaire pour envoyer un message via template -->
+    <record id="view_send_whatsapp_template_form" model="ir.ui.view">
+        <field name="name">whatsapp.send.template.form</field>
+        <field name="model">whatsapp.send.template</field>
+        <field name="arch" type="xml">
+            <form string="Envoyer un message template WhatsApp">
+                <header>
+                    <button name="action_send_template" string="Envoyer le template" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <span class="fa fa-whatsapp" style="color: #25D366; margin-right: 10px;"/>
+                            Envoyer un message template WhatsApp
+                        </h1>
+                    </div>
+                    
+                    <group>
+                        <group string="Configuration">
+                            <field name="config_id" 
+                                   options="{'no_create': True, 'no_create_edit': True}"
+                                   widget="many2one"/>
+                            <field name="use_custom_message" 
+                                   string="Utiliser un message personnalisé"
+                                   help="Si coché, le message personnalisé sera envoyé comme message texte simple (sujet à la fenêtre de 24h)"/>
+                        </group>
+                        <group string="Destinataire">
+                            <field name="contact_id" 
+                                   options="{'no_create': True}"
+                                   widget="many2one"
+                                   placeholder="Sélectionner un contact..."/>
+                            <field name="phone" 
+                                   required="1"
+                                   placeholder="+33612345678"
+                                   widget="phone"/>
+                        </group>
+                    </group>
+                    
+                    <notebook>
+                        <page string="Template" name="template" attrs="{'invisible': [('use_custom_message', '=', True)]}">
+                            <group col="1">
+                                <group string="Sélection du template">
+                                    <field name="template_id" 
+                                           options="{'no_create': True}"
+                                           widget="many2one"
+                                           attrs="{'required': [('use_custom_message', '=', False)]}"
+                                           placeholder="Sélectionner un template..."/>
+                                    <field name="language_code" 
+                                           placeholder="fr"
+                                           help="Code langue du template (ex: fr, en, es)"/>
+                                </group>
+                            </group>
+                            <group col="1" string="Paramètres du template">
+                                <div class="alert alert-info" role="alert">
+                                    <p><strong>Template simple (sans paramètres) :</strong></p>
+                                    <p>Pour un template simple comme "simple_text_message", laissez le champ "Paramètres" <strong>VIDE</strong>.</p>
+                                </div>
+                                <field name="template_params" 
+                                       placeholder='Exemple: [{"type": "body", "parameters": [{"type": "text", "text": "Valeur 1"}, {"type": "text", "text": "Valeur 2"}]}]'
+                                       widget="text"
+                                       nolabel="1"
+                                       options="{'resizable': true}"/>
+                            </group>
+                        </page>
+                        <page string="Message personnalisé" name="custom" attrs="{'invisible': [('use_custom_message', '=', False)]}">
+                            <group col="1">
+                                <div class="alert alert-warning" role="alert">
+                                    <h4><i class="fa fa-exclamation-triangle"/> Attention : Fenêtre de 24h</h4>
+                                    <p><strong>Le message personnalisé sera envoyé comme message texte simple, sujet à la fenêtre de 24h.</strong></p>
+                                    <p>Pour envoyer hors de la fenêtre de 24h, utilisez un <strong>template approuvé</strong>.</p>
+                                </div>
+                                <field name="custom_message" 
+                                       nolabel="1" 
+                                       placeholder="Saisissez votre message personnalisé ici..."
+                                       widget="text"
+                                       options="{'resizable': true}"/>
+                            </group>
+                        </page>
+                        <page string="ℹ️ Aide" name="help">
+                            <div class="alert alert-success" role="alert">
+                                <h4><i class="fa fa-check-circle"/> Avantage des templates</h4>
+                                <p>Vous pouvez envoyer des messages même <strong>hors de la fenêtre de 24h</strong> !</p>
+                                <p>Les templates doivent être approuvés par WhatsApp avant utilisation.</p>
+                            </div>
+                            <div class="alert alert-info" role="alert">
+                                <h4><i class="fa fa-info-circle"/> Format des paramètres</h4>
+                                <p>Les paramètres doivent être au format <strong>JSON</strong>.</p>
+                                <p><strong>Exemple pour un template avec 2 paramètres :</strong></p>
+                                <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">[
+  {
+    "type": "body",
+    "parameters": [
+      {"type": "text", "text": "Valeur paramètre 1"},
+      {"type": "text", "text": "Valeur paramètre 2"}
+    ]
+  }
+]</pre>
+                                <p><strong>Exemple pour un template avec header image :</strong></p>
+                                <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">[
+  {
+    "type": "header",
+    "parameters": [
+      {"type": "image", "image": {"link": "https://example.com/image.jpg"}}
+    ]
+  },
+  {
+    "type": "body",
+    "parameters": [
+      {"type": "text", "text": "Valeur paramètre 1"}
+    ]
+  }
+]</pre>
+                            </div>
+                            <div class="alert alert-warning" role="alert">
+                                <h4><i class="fa fa-lightbulb-o"/> Message personnalisé</h4>
+                                <p>Cochez <strong>"Utiliser un message personnalisé"</strong> pour modifier le texte avant l'envoi.</p>
+                                <p><strong>⚠️ Attention :</strong> Le message personnalisé est sujet à la fenêtre de 24h.</p>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_send_template" string="Envoyer" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                    <button string="Annuler" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action pour envoyer un message avec boutons -->
+    <record id="action_send_whatsapp_interactive" model="ir.actions.act_window">
+        <field name="name">Envoyer un message avec boutons</field>
+        <field name="res_model">whatsapp.send.interactive</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+
+
+
+    <!-- Vue formulaire pour envoyer un message avec boutons -->
+    <record id="view_send_whatsapp_interactive_form" model="ir.ui.view">
+        <field name="name">whatsapp.send.interactive.form</field>
+        <field name="model">whatsapp.send.interactive</field>
+        <field name="arch" type="xml">
+            <form string="Envoyer un message WhatsApp avec boutons">
+                <header>
+                    <button name="action_send_interactive" string="Envoyer le message" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <span class="fa fa-whatsapp" style="color: #25D366; margin-right: 10px;"/>
+                            Message avec boutons interactifs
+                        </h1>
+                    </div>
+                    
+                    <group>
+                        <group string="Configuration">
+                            <field name="config_id" 
+                                   options="{'no_create': True, 'no_create_edit': True}"
+                                   widget="many2one"/>
+                        </group>
+                        <group string="Destinataire">
+                            <field name="contact_id" 
+                                   options="{'no_create': True}"
+                                   widget="many2one"
+                                   placeholder="Sélectionner un contact..."/>
+                            <field name="phone" 
+                                   required="1"
+                                   placeholder="+33612345678"
+                                   widget="phone"/>
+                        </group>
+                    </group>
+                    
+                    <notebook>
+                        <page string="Message" name="message">
+                            <group col="1">
+                                <field name="message" 
+                                       placeholder="Saisissez votre message ici...&#10;&#10;Exemple :&#10;Bonjour,&#10;&#10;Souhaitez-vous valider cette commande ?" 
+                                       nolabel="1"
+                                       widget="text"
+                                       options="{'resizable': true}"/>
+                            </group>
+                        </page>
+                        <page string="Boutons" name="buttons">
+                            <group>
+                                <group string="Bouton 1">
+                                    <field name="button_1_id" 
+                                           placeholder="btn_yes"
+                                           help="ID du bouton (doit correspondre à une action configurée)"/>
+                                    <field name="button_1_title" 
+                                           placeholder="Oui"
+                                           help="Texte affiché sur le bouton"/>
+                                </group>
+                                <group string="Bouton 2">
+                                    <field name="button_2_id" 
+                                           placeholder="btn_no"
+                                           help="ID du bouton (doit correspondre à une action configurée)"/>
+                                    <field name="button_2_title" 
+                                           placeholder="Non"
+                                           help="Texte affiché sur le bouton"/>
+                                </group>
+                                <group string="Bouton 3">
+                                    <field name="button_3_id" 
+                                           placeholder="btn_info"
+                                           help="ID du bouton (doit correspondre à une action configurée)"/>
+                                    <field name="button_3_title" 
+                                           placeholder="Plus d'infos"
+                                           help="Texte affiché sur le bouton"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string=" Aide" name="help">
+                            <div class="alert alert-info" role="alert">
+                                <h4><i class="fa fa-info-circle"/> Comment ça fonctionne</h4>
+                                <ol>
+                                    <li>Définissez votre message et jusqu'à <strong>3 boutons</strong></li>
+                                    <li>L'<strong>ID du bouton</strong> doit correspondre à celui défini dans <strong>"Actions de boutons"</strong></li>
+                                    <li>Quand le client clique sur un bouton, l'action associée sera <strong>exécutée automatiquement</strong></li>
+                                    <li>Les actions peuvent : envoyer un message, mettre à jour un contact, exécuter du code Python, etc.</li>
+                                </ol>
+                            </div>
+                            <div class="alert alert-warning" role="alert">
+                                <h4><i class="fa fa-exclamation-triangle"/> Important</h4>
+                                <p>Assurez-vous que les <strong>Actions de boutons</strong> sont configurées avant d'envoyer le message.</p>
+                                <p>Vous pouvez les configurer dans : <strong>WhatsApp > Actions de boutons</strong></p>
+                            </div>
+                            <div class="alert alert-success" role="alert">
+                                <h4><i class="fa fa-lightbulb-o"/> Exemple</h4>
+                                <p><strong>Message :</strong> "Souhaitez-vous valider cette commande ?"</p>
+                                <p><strong>Bouton 1 :</strong> ID = <code>btn_validate_order</code>, Titre = "Valider"</p>
+                                <p><strong>Bouton 2 :</strong> ID = <code>btn_reject_order</code>, Titre = "Rejeter"</p>
+                            </div>
+                        </page>
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button name="action_send_interactive" string="Envoyer" type="object" class="btn-primary" icon="fa-paper-plane"/>
+                    <button string="Annuler" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
+
+

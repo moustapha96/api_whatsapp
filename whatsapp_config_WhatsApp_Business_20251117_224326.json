@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "export_date": "2025-11-17T22:43:26",
+  "config": {
+    "name": "WhatsApp Business",
+    "active": true,
+    "access_token": "EAFp6Kyi8aRMBP8QK49Eh8nbgA1IKnOwEzRhqS0HoZBiSQZCo0JOiT1SFB0TdRCZBGw3Xg78QdptUry8ywZCZC7LFEBdzesbgStIz7JnyLaHZA9ZATwyRriY42T4j3JXVzPA22I4FL3AWbclgEiGyvmoaj5eGeZARX89D5BRknDo2xJNYZAf3a8a8czbo2UtdXXgZDZD",
+    "phone_number_id": "881068025087844",
+    "business_account_id": "1231205165506123",
+    "app_id": "25467073689577747",
+    "app_secret": "e0c48b599f8d2dd80933d50cd8caf463",
+    "webhook_url": "https://orbitcity-dev-api-whatsapp-25642789.dev.odoo.com/whatsapp/webhook/1",
+    "webhook_verify_token": "ccbmshop",
+    "webhook_active": true,
+    "api_version": "v22.0",
+    "rate_limit_per_second": 80,
+    "rate_limit_per_minute": 1000,
+    "on_premises_base_url": "https://your-on-premises-server.com/v1",
+    "registration_certificate": "CmYKIgjey5fE+qG8AxIGZW50OndhIgljY2JtX3Nob3BQjZ/uyAYaQAVExfPGli6YCd0afEo6miV4ANKe4tq84ZaE745hA1UYxImtZWT8JgEGFqmhVVU407Oz1LN7Iq56/jHjaKUHowASL21VD62ev/Om8FqysJqtaiGTWuziVcbyBctTb4CLHPzkrRSfi93nO+kswxjzXPXg",
+    "registration_country_code": "221",
+    "registration_phone_number": "786087932",
+    "registration_method": "sms",
+    "registration_pin": "123456"
+  }
+}

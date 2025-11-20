@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/views/whatsapp_conversation_views.xml -->
+<odoo>
+    <record id="action_whatsapp_conversation" model="ir.actions.act_window">
+        <field name="name">Conversations WhatsApp</field>
+        <field name="res_model">whatsapp.conversation</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem id="menu_whatsapp_conversation"
+              name="Conversations"
+              parent="menu_whatsapp_root"
+              action="action_whatsapp_conversation"
+              sequence="6"/>
+
+    <record id="view_whatsapp_conversation_tree" model="ir.ui.view">
+        <field name="name">whatsapp.conversation.tree</field>
+        <field name="model">whatsapp.conversation</field>
+        <field name="arch" type="xml">
+            <tree string="Conversations WhatsApp">
+                <field name="name"/>
+                <field name="phone"/>
+                <field name="contact_id"/>
+                <field name="message_count"/>
+                <field name="create_date"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_whatsapp_conversation_form" model="ir.ui.view">
+        <field name="name">whatsapp.conversation.form</field>
+        <field name="model">whatsapp.conversation</field>
+        <field name="arch" type="xml">
+            <form string="Conversation WhatsApp">
+                <header>
+                    <button name="%(api_whatsapp.action_send_whatsapp_message)d" 
+                            type="action" 
+                            string="Envoyer un message"
+                            class="oe_highlight"
+                            context="{'default_phone': phone, 'default_contact_id': contact_id}"/>
+                    <button name="%(api_whatsapp.action_send_whatsapp_template)d" 
+                            type="action" 
+                            string="Envoyer un template"
+                            context="{'default_phone': phone, 'default_contact_id': contact_id}"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="phone"/>
+                        <field name="contact_id"/>
+                        <field name="contact_name"/>
+                        <field name="message_count"/>
+                    </group>
+                    <notebook>
+                        <page string="Messages">
+                            <field name="message_ids">
+                                <tree>
+                                    <field name="create_date"/>
+                                    <field name="direction"/>
+                                    <field name="phone"/>
+                                    <field name="message_type"/>
+                                    <field name="status"/>
+                                    <field name="content"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>
+

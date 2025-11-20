@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/data/whatsapp_order_details_actions.xml -->
+<odoo>
+    <!-- Action pour afficher les détails d'une commande avec les produits -->
+    <record id="action_btn_view_order_details" model="whatsapp.button.action">
+        <field name="name">Voir détail commande</field>
+        <field name="button_id">btn_view_order_details</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+import json
+import logging
+
+_logger = logging.getLogger(__name__)
+
+# Cherche la commande par ID dans le button_id
+order = None
+order_id = None
+
+# Le button_id est au format "btn_view_order_details_123" où 123 est l'ID de la commande
+if button_id.startswith('btn_view_order_details_'):
+    try:
+        order_id = int(button_id.replace('btn_view_order_details_', ''))
+        order = env['sale.order'].browse(order_id)
+        if not order.exists():
+            order = None
+    except:
+        pass
+
+# Si pas trouvé par ID, cherche par numéro de téléphone et commande récente
+if not order:
+    # Cherche dans les messages précédents pour trouver l'ID de la commande
+    previous_messages = env['whatsapp.message'].search([
+        ('phone', '=', message.phone),
+        ('direction', '=', 'out'),
+        ('message_type', '=', 'interactive')
+    ], order='create_date desc', limit=5)
+    
+    for prev_msg in previous_messages:
+        if prev_msg.raw_payload:
+            try:
+                payload = json.loads(prev_msg.raw_payload)
+                interactive = payload.get('interactive', {})
+                buttons = interactive.get('action', {}).get('buttons', [])
+                for btn in buttons:
+                    btn_id = btn.get('reply', {}).get('id', '')
+                    if btn_id.startswith('btn_view_order_details_'):
+                        try:
+                            order_id = int(btn_id.replace('btn_view_order_details_', ''))
+                            order = env['sale.order'].browse(order_id)
+                            if order.exists():
+                                break
+                        except:
+                            pass
+                if order:
+                    break
+            except:
+                pass
+
+# Si pas trouvé, cherche par numéro de téléphone du partenaire
+if not order:
+    phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
+    if not phone_clean.startswith('+'):
+        phone_clean = '+' + phone_clean.lstrip('+')
+    
+    order = env['sale.order'].search([
+        ('partner_id.phone', 'ilike', phone_clean),
+        ('x_whatsapp_creation_sent', '=', True)
+    ], order='create_date desc', limit=1)
+
+if order:
+    # Vérifie si les détails ont déjà été envoyés (évite les doublons)
+    if order.x_whatsapp_details_sent:
+        _logger.info("Détails de la commande %s déjà envoyés, envoi ignoré", order.name)
+        message.content = f"Détails commande {order.name} déjà envoyés"
+    else:
+        # Construit le message avec les détails de la commande
+        details_message = f"📋 Détails de la commande {order.name}\n\n"
+        
+        # Informations générales
+        details_message += f"Numéro : {order.name}\n"
+        details_message += f"Date : {order.date_order.strftime('%d/%m/%Y') if order.date_order else 'N/A'}\n"
+        details_message += f"Montant total : {order.amount_total:.0f} F CFA\n\n"
+        
+        # Type de commande si disponible
+        if hasattr(order, 'type_sale') and order.type_sale:
+            type_sale_translations = {
+                'order': 'Commande',
+                'preorder': 'Précommande',
+                'creditorder': 'Commande crédit'
+            }
+            type_sale_display = type_sale_translations.get(order.type_sale, order.type_sale)
+            details_message += f"Type : {type_sale_display}\n\n"
+        
+        # Liste des produits
+        if order.order_line:
+            details_message += "📦 Produits :\n"
+            details_message += "─" * 30 + "\n"
+            
+            for line in order.order_line:
+                product_name = line.product_id.name if line.product_id else line.name
+                quantity = line.product_uom_qty
+                unit_price = line.price_unit
+                subtotal = line.price_subtotal
+                
+                # Formate le nom du produit (limite à 30 caractères pour WhatsApp)
+                if len(product_name) > 30:
+                    product_name = product_name[:27] + "..."
+                
+                details_message += f"• {product_name}\n"
+                details_message += f"  Qté : {quantity:.0f}"
+                
+                # Affiche l'unité si disponible
+                if line.product_uom:
+                    details_message += f" {line.product_uom.name}"
+                
+                details_message += f" × {unit_price:.0f} F CFA\n"
+                details_message += f"  Sous-total : {subtotal:.0f} F CFA\n\n"
+        else:
+            details_message += "📦 Aucun produit dans cette commande.\n\n"
+        
+        # Totaux
+        details_message += "─" * 30 + "\n"
+        details_message += f"Sous-total : {order.amount_untaxed:.0f} F CFA\n"
+        
+        if order.amount_tax > 0:
+            details_message += f"TVA : {order.amount_tax:.0f} F CFA\n"
+        
+        details_message += f"Total : {order.amount_total:.0f} F CFA\n\n"
+        
+        # Informations supplémentaires
+        if order.partner_id.street:
+            details_message += f"📍 Adresse : {order.partner_id.street}\n"
+            if order.partner_id.city:
+                details_message += f"   {order.partner_id.city}"
+                if order.partner_id.zip:
+                    details_message += f" {order.partner_id.zip}"
+                details_message += "\n"
+        
+        # Envoie le message de détails
+        if message.config_id:
+            try:
+                result = message.config_id.send_text_to_partner(
+                    partner_id=order.partner_id.id,
+                    message_text=details_message
+                )
+                
+                # Marque la commande comme ayant reçu les détails uniquement si l'envoi a réussi
+                if result and isinstance(result, dict) and result.get('success'):
+                    from odoo import fields
+                    order.write({
+                        'x_whatsapp_details_sent': True,
+                        'x_whatsapp_details_sent_date': fields.Datetime.now()
+                    })
+                    _logger.info("Détails de la commande %s envoyés via WhatsApp à %s", order.name, message.phone)
+                    message.content = f"Détails commande {order.name} envoyés"
+                else:
+                    _logger.warning("Échec de l'envoi des détails de la commande %s: %s", order.name, result.get('error', 'Erreur inconnue') if result else 'Aucun résultat')
+                    message.content = f"Échec envoi détails: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
+            except Exception as e:
+                _logger.error("Erreur lors de l'envoi des détails de la commande %s: %s", order.name, str(e))
+                message.content = f"Erreur envoi détails: {str(e)}"
+        else:
+            _logger.warning("Configuration WhatsApp non trouvée pour envoyer les détails de la commande")
+            message.content = "Configuration WhatsApp non trouvée"
+else:
+    _logger.warning("Aucune commande trouvée pour afficher les détails via WhatsApp - Bouton: %s, Numéro: %s", button_id, message.phone)
+    message.content = "Aucune commande trouvée"
+]]></field>
+        <field name="sequence">5</field>
+        <field name="active">True</field>
+        <field name="description">Affiche les détails d'une commande avec la liste des produits lorsque le client clique sur "Voir détail"</field>
+    </record>
+</odoo>
+

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- whatsapp_business_api/views/account_move_whatsapp_views.xml -->
+<odoo>
+    <!-- Hérite de la vue formulaire de facture pour ajouter un bouton WhatsApp -->
+    <record id="view_account_move_form_whatsapp_button" model="ir.ui.view">
+        <field name="name">account.move.form.whatsapp</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+            <!-- Insère le header avec le bouton avant le sheet -->
+            <xpath expr="//form/sheet" position="before">
+                <header>
+                    <button name="action_send_whatsapp_invoice" 
+                            type="object"
+                            string="Envoyer facture par WhatsApp"
+                            class="oe_highlight"
+                            icon="fa-whatsapp"
+                            attrs="{'invisible': ['|', ('move_type', 'not in', ['out_invoice', 'out_refund']), '|', ('state', '!=', 'posted'), ('partner_id', '=', False)]}"
+                            help="Envoie la facture en PDF par WhatsApp au partenaire. Le partenaire doit avoir un numéro de téléphone."
+                            confirm="Êtes-vous sûr de vouloir envoyer cette facture par WhatsApp ?"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+</odoo>
+

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exemples de templates WhatsApp -->
+<odoo>
+    <!-- Template 0: Message texte simple (RECOMMANDÉ) -->
+    <record id="template_simple_text_message" model="whatsapp.template">
+        <field name="name">Message texte simple</field>
+        <field name="wa_name">simple_text_message</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template simple pour envoyer des messages texte à tout moment, même hors de la fenêtre de 24h. À créer dans Meta Business Suite avec le nom 'simple_text_message'. Message recommandé: 'Bonjour, ceci est un message simple que vous pouvez envoyer à tout moment. Merci.'</field>
+    </record>
+
+    <!-- Template 1: Message de bienvenue simple -->
+    <record id="template_welcome_simple" model="whatsapp.template">
+        <field name="name">Message de bienvenue</field>
+        <field name="wa_name">welcome_message</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template simple pour envoyer un message de bienvenue. À créer dans Meta Business Suite avec le nom 'welcome_message'</field>
+    </record>
+
+    <!-- Template 2: Notification simple -->
+    <record id="template_notification_simple" model="whatsapp.template">
+        <field name="name">Notification simple</field>
+        <field name="wa_name">simple_notification</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template pour envoyer des notifications simples. À créer dans Meta Business Suite avec le nom 'simple_notification'</field>
+    </record>
+
+    <!-- Template 3: Message avec paramètres -->
+    <record id="template_message_with_params" model="whatsapp.template">
+        <field name="name">Message avec paramètres</field>
+        <field name="wa_name">message_with_params</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template avec paramètres pour personnaliser le message. Exemple: 'Bonjour {{1}}, votre commande {{2}} est prête.' À créer dans Meta Business Suite.</field>
+    </record>
+
+    <!-- Template 4: Confirmation de commande -->
+    <record id="template_order_confirmation" model="whatsapp.template">
+        <field name="name">Confirmation de commande</field>
+        <field name="wa_name">order_confirmation</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template pour confirmer une commande. À créer dans Meta Business Suite avec le nom 'order_confirmation'</field>
+    </record>
+
+    <!-- Template 5: Rappel de rendez-vous -->
+    <record id="template_appointment_reminder" model="whatsapp.template">
+        <field name="name">Rappel de rendez-vous</field>
+        <field name="wa_name">appointment_reminder</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template pour rappeler un rendez-vous. À créer dans Meta Business Suite avec le nom 'appointment_reminder'</field>
+    </record>
+</odoo>
+

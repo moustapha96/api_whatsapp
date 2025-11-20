@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Action serveur pour envoyer la validation WhatsApp -->
+    <!-- Cette solution évite les problèmes d'ID externe de vue -->
+    <!-- L'action apparaîtra dans le menu "Action" de la vue formulaire des commandes -->
+    <record id="action_send_order_validation_whatsapp_server" model="ir.actions.server">
+        <field name="name">Envoyer validation WhatsApp</field>
+        <field name="model_id" ref="sale.model_sale_order"/>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">
+if records:
+    action = records.action_send_order_validation_whatsapp()
+        </field>
+    </record>
+</odoo>
+

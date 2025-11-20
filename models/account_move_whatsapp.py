@@ -612,185 +612,57 @@ class AccountMove(models.Model):
                                       self.name, result.get('error', 'Erreur inconnue') if isinstance(result, dict) else 'Résultat invalide')
                     pdf_content = None
             
-            # Si on a un PDF, continue avec le traitement
+            # Si on a un PDF, envoie directement un message interactif avec bouton "Télécharger PDF"
             if pdf_content:
                 try:
-                    # Crée un attachement temporaire
-                    # pdf_content est déjà en bytes, on doit l'encoder en base64 pour Odoo
-                    pdf_base64 = base64.b64encode(pdf_content).decode('utf-8')
+                    # Crée un attachement public pour le PDF
                     attachment = self.env['ir.attachment'].create({
                         'name': f"{self.name}.pdf",
                         'type': 'binary',
-                        'datas': pdf_base64,
+                        'datas': base64.b64encode(pdf_content),
                         'res_model': 'account.move',
                         'res_id': self.id,
-                        'mimetype': 'application/pdf',
                         'public': True,  # Rend l'attachement public pour que WhatsApp puisse le télécharger
                     })
                     
                     # Génère une URL publique pour le PDF
                     base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '')
                     if base_url:
-                        # Génère l'URL pour télécharger le PDF
-                        # Odoo permet d'accéder aux attachements via /web/content/{id}
                         pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
                         
-                        # Essaie d'utiliser un template WhatsApp avec bouton URL
-                        # Le template doit être créé dans Meta Business Suite avec le nom "invoice_with_download"
-                        template_name = "invoice_with_download"  # Nom du template dans Meta
+                        # Prépare le message avec les détails de la facture
+                        message = f"Bonjour {self.partner_id.name},\n\n"
+                        message += f"✅ Votre facture {self.name} a été validée.\n\n"
+                        message += f"Montant total : {self.amount_total:.0f} F CFA\n"
+                        if self.invoice_date:
+                            message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
+                        message += "\nCliquez sur le bouton ci-dessous pour télécharger votre facture."
+                        message += "\n\nMerci de votre confiance !"
+                        message += "\n\nÉquipe CCBM Shop"
                         
-                        try:
-                            # Prépare les paramètres du template
-                            # Le template doit avoir :
-                            # - Body avec paramètres : {{1}} = Nom partenaire, {{2}} = Numéro facture, {{3}} = Montant, {{4}} = Date
-                            # - Un bouton URL (défini dans le template Meta, l'URL sera passée comme paramètre dynamique)
-                            components = [
-                                {
-                                    "type": "body",
-                                    "parameters": [
-                                        {"type": "text", "text": self.partner_id.name or ""},  # {{1}}
-                                        {"type": "text", "text": self.name or ""},  # {{2}}
-                                        {"type": "text", "text": f"{self.amount_total:.0f} F CFA"},  # {{3}}
-                                        {"type": "text", "text": self.invoice_date.strftime('%d/%m/%Y') if self.invoice_date else ""}  # {{4}}
-                                    ]
-                                },
-                                {
-                                    "type": "button",
-                                    "sub_type": "url",
-                                    "index": "0",  # Index du bouton (0 pour le premier bouton URL dans le template)
-                                    "parameters": [
-                                        {
-                                            "type": "text",
-                                            "text": pdf_url  # URL dynamique pour le bouton - sera insérée dans le bouton URL du template
-                                        }
-                                    ]
-                                }
-                            ]
-                            
-                            # Envoie le template avec le bouton
-                            # Note: send_template_message peut lever une ValidationError si le template n'existe pas
-                            result = whatsapp_config.send_template_message(
-                                to_phone=phone,
-                                template_name=template_name,
-                                language_code="fr",
-                                components=components
-                            )
-                            
-                            # Si on arrive ici, le template a été envoyé avec succès
-                            _logger.info("Template %s envoyé avec succès pour la facture %s", template_name, self.name)
-                            # Marque immédiatement comme envoyé pour éviter les doublons
-                            if isinstance(result, dict) and result.get('success'):
-                                self._mark_invoice_sent()
-                                
-                        except ValidationError as ve:
-                            # Le template n'existe pas ou n'est pas approuvé
-                            error_msg = str(ve).lower()
-                            _logger.warning("Template %s non trouvé ou erreur: %s. Envoi du PDF directement.", template_name, error_msg)
-                            # Continue avec l'envoi du PDF directement (pas de raise, on continue le code)
-                            result = None
-                        except Exception as e:
-                            _logger.warning("Impossible d'utiliser le template %s: %s. Envoi du PDF directement.", template_name, str(e))
-                            # Continue avec l'envoi du PDF directement
-                            result = None
+                        # Crée un bouton "Télécharger PDF" qui déclenchera l'action de téléchargement
+                        buttons = [{
+                            "type": "reply",
+                            "reply": {
+                                "id": f"btn_download_invoice_{self.id}",
+                                "title": "Télécharger PDF"
+                            }
+                        }]
                         
-                        # Si le template n'a pas fonctionné, envoie le PDF directement
-                        # Vérifie si result est None ou si c'est un dict avec success=False
-                        template_success = False
-                        if result:
-                            if isinstance(result, dict):
-                                template_success = result.get('success', False)
-                            else:
-                                # Si result n'est pas un dict, on considère que ça a réussi (ancien format)
-                                template_success = True
+                        # Envoie le message interactif avec le bouton
+                        result = whatsapp_config.send_interactive_message(
+                            to_phone=phone,
+                            body_text=message,
+                            buttons=buttons
+                        )
                         
-                        if not template_success:
-                            try:
-                                message = f"Bonjour {self.partner_id.name},\n\n"
-                                message += f"Votre facture {self.name} a été validée.\n\n"
-                                message += f"Montant total : {self.amount_total:.0f} F CFA\n"
-                                if self.invoice_date:
-                                    message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
-                                message += "\nMerci de votre confiance !"
-                                
-                                _logger.info("Tentative d'envoi du PDF directement pour la facture %s avec URL: %s", self.name, pdf_url)
-                                
-                                # Vérifie que l'URL n'est pas localhost (WhatsApp ne peut pas accéder aux URLs locales)
-                                if 'localhost' in pdf_url or '127.0.0.1' in pdf_url or '::1' in pdf_url:
-                                    _logger.warning("URL localhost détectée (%s), impossible d'envoyer le document directement. Utilisation du bouton de téléchargement.", pdf_url)
-                                    raise Exception("URL localhost non accessible par WhatsApp")
-                                
-                                # send_document_message retourne data (peut être None en cas d'erreur)
-                                # ou un dict avec les données de réponse
-                                result = whatsapp_config.send_document_message(
-                                    to_phone=phone,
-                                    document_link=pdf_url,
-                                    filename=f"{self.name}.pdf",
-                                    caption=message
-                                )
-                                
-                                # Vérifie si l'envoi a réussi
-                                # send_document_message retourne data qui peut être None ou un dict
-                                if result is None or (isinstance(result, dict) and result.get('error')):
-                                    _logger.warning("Échec envoi PDF, résultat: %s", result)
-                                    # Continue avec le fallback texte
-                                    raise Exception("Échec envoi PDF")
-                                else:
-                                    _logger.info("PDF envoyé avec succès pour la facture %s", self.name)
-                                    # Convertit result en format dict avec success pour la suite
-                                    if not isinstance(result, dict):
-                                        result = {'success': True, 'data': result}
-                                    else:
-                                        result['success'] = True
-                                    # Marque immédiatement comme envoyé pour éviter les doublons
-                                    self._mark_invoice_sent()
-                                    
-                            except Exception as e2:
-                                _logger.warning("Impossible d'envoyer le PDF, erreur: %s. Envoi du message interactif avec bouton de téléchargement.", str(e2))
-                                # Dernier fallback : message interactif avec bouton "Télécharger"
-                                message = f"Bonjour {self.partner_id.name},\n\n"
-                                message += f"Votre facture {self.name} a été validée.\n\n"
-                                message += f"Montant total : {self.amount_total:.0f} F CFA\n"
-                                if self.invoice_date:
-                                    message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
-                                message += "\nCliquez sur le bouton ci-dessous pour télécharger votre facture."
-                                message += "\n\nMerci de votre confiance !"
-                                
-                                # Crée un bouton "Télécharger" qui déclenchera l'action de téléchargement
-                                buttons = [{
-                                    "type": "reply",
-                                    "reply": {
-                                        "id": f"btn_download_invoice_{self.id}",
-                                        "title": "Télécharger facture"
-                                    }
-                                }]
-                                
-                                try:
-                                    result = whatsapp_config.send_interactive_message(
-                                        to_phone=phone,
-                                        body_text=message,
-                                        buttons=buttons
-                                    )
-                                    # Marque immédiatement comme envoyé si succès
-                                    if isinstance(result, dict) and result.get('success'):
-                                        self._mark_invoice_sent()
-                                except Exception as e3:
-                                    _logger.warning("Échec de l'envoi du message interactif, envoi du message texte avec lien: %s", str(e3))
-                                    # Dernier fallback : message texte avec lien
-                                    message_text = f"Bonjour {self.partner_id.name},\n\n"
-                                    message_text += f"Votre facture {self.name} a été validée.\n\n"
-                                    message_text += f"Montant total : {self.amount_total:.0f} F CFA\n"
-                                    if self.invoice_date:
-                                        message_text += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
-                                    message_text += f"\nTélécharger la facture : {pdf_url}"
-                                    message_text += "\n\nMerci de votre confiance !"
-                                    
-                                    result = whatsapp_config.send_text_to_partner(
-                                        partner_id=self.partner_id.id,
-                                        message_text=message_text
-                                    )
-                                    # Marque immédiatement comme envoyé si succès
-                                    if isinstance(result, dict) and result.get('success'):
-                                        self._mark_invoice_sent()
+                        # Marque immédiatement comme envoyé si succès
+                        if isinstance(result, dict) and result.get('success'):
+                            self._mark_invoice_sent()
+                            _logger.info("Message interactif avec bouton téléchargement envoyé avec succès pour la facture %s", self.name)
+                        else:
+                            _logger.warning("Échec de l'envoi du message interactif pour la facture %s: %s", 
+                                          self.name, result.get('error', 'Erreur inconnue') if isinstance(result, dict) else 'Résultat invalide')
                     else:
                         # Pas d'URL de base, envoie juste le message texte
                         message = f"Bonjour {self.partner_id.name},\n\n"

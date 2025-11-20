@@ -426,13 +426,79 @@ class SaleOrder(models.Model):
             
             # Ajoute un message selon l'état
             if new_state == 'sale':
-                message += "Merci pour votre confiance."
+                # Génère le PDF de la facture et crée le bouton de téléchargement
+                invoice_pdf_url = None
                 
-                # Envoie le message texte simple
-                result = whatsapp_config.send_text_to_partner(
-                    partner_id=self.partner_id.id,
-                    message_text=message
-                )
+                if invoice:
+                    # Génère le PDF de la facture
+                    try:
+                        report = None
+                        report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+                        
+                        for report_name in report_names:
+                            try:
+                                report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                                if report and report.exists() and report.id:
+                                    break
+                                else:
+                                    report = None
+                            except:
+                                report = None
+                                continue
+                        
+                        if not report or not report.exists():
+                            report = self.env['ir.actions.report'].search([
+                                ('report_name', 'in', report_names),
+                                ('model', '=', 'account.move')
+                            ], limit=1)
+                        
+                        if report and report.exists():
+                            invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                            
+                            if invoice_pdf_content:
+                                # Crée un attachment public pour le PDF de la facture
+                                invoice_attachment = self.env['ir.attachment'].create({
+                                    'name': f"{invoice.name}.pdf",
+                                    'type': 'binary',
+                                    'datas': base64.b64encode(invoice_pdf_content),
+                                    'res_model': 'account.move',
+                                    'res_id': invoice.id,
+                                    'public': True,
+                                })
+                                
+                                # Génère l'URL publique de téléchargement
+                                base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                                invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
+                                _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
+                    except Exception as e:
+                        _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+                
+                # Prépare le message avec la facture
+                message += "\nMerci pour votre confiance."
+                message += "\n\nÉquipe CCBM Shop"
+                
+                # Si on a une facture avec PDF, envoie un message interactif avec bouton
+                if invoice_pdf_url and invoice:
+                    buttons = [{
+                        "type": "reply",
+                        "reply": {
+                            "id": f"btn_download_invoice_{invoice.id}",
+                            "title": "Télécharger facture"
+                        }
+                    }]
+                    
+                    # Envoie le message interactif avec le bouton
+                    result = whatsapp_config.send_interactive_message(
+                        to_phone=phone,
+                        body_text=message,
+                        buttons=buttons
+                    )
+                else:
+                    # Envoie le message texte simple
+                    result = whatsapp_config.send_text_to_partner(
+                        partner_id=self.partner_id.id,
+                        message_text=message
+                    )
             elif new_state == 'done':
                 message += "Merci pour votre confiance.\n\n"
                 

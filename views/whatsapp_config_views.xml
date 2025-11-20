@@ -81,6 +81,23 @@
                         <field name="verify_token"/>
                         <field name="webhook_url"/>
                     </group>
+                    <group string="Paramètres d'envoi automatique">
+                        <field name="auto_send_order_creation" 
+                               help="Si activé, un message WhatsApp sera envoyé automatiquement lors de la création d'une commande"/>
+                        <field name="auto_send_unpaid_invoices" 
+                               help="Si activé, un message WhatsApp sera envoyé automatiquement pour les factures impayées"/>
+                        <field name="unpaid_invoice_days" 
+                               attrs="{'required': [('auto_send_unpaid_invoices', '=', True)], 'invisible': [('auto_send_unpaid_invoices', '=', False)]}"
+                               help="Nombre de jours après l'échéance avant d'envoyer un rappel pour les factures impayées"/>
+                    </group>
+                    <group string="Affichage des boutons WhatsApp">
+                        <field name="show_button_in_invoice" 
+                               help="Si activé, le bouton 'Envoyer facture par WhatsApp' sera visible dans la vue formulaire des factures"/>
+                        <field name="show_button_in_order" 
+                               help="Si activé, le bouton WhatsApp sera visible dans la vue formulaire des commandes"/>
+                        <field name="show_button_in_partner" 
+                               help="Si activé, le bouton 'Envoyer WhatsApp' sera visible dans la vue formulaire des partenaires"/>
+                    </group>
                 </sheet>
             </form>
         </field>

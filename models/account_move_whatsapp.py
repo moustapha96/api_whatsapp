@@ -11,6 +11,21 @@ _logger = logging.getLogger(__name__)
 # Hérite directement de account.move (le module account est dans les dépendances)
 class AccountMove(models.Model):
     _inherit = 'account.move'
+    
+    @api.depends()
+    def _compute_show_whatsapp_button(self):
+        """Calcule si le bouton WhatsApp doit être affiché selon la configuration"""
+        config = self.env['whatsapp.config'].get_active_config()
+        show_button = config.show_button_in_invoice if config else True
+        for record in self:
+            record.x_show_whatsapp_button = show_button
+    
+    x_show_whatsapp_button = fields.Boolean(
+        string="Afficher bouton WhatsApp",
+        compute="_compute_show_whatsapp_button",
+        store=False,
+        help="Indique si le bouton WhatsApp doit être affiché selon la configuration"
+    )
 
     x_whatsapp_residual_sent = fields.Boolean(
         string="Message montant résiduel WhatsApp envoyé",
@@ -40,6 +55,16 @@ class AccountMove(models.Model):
     
     x_whatsapp_invoice_sent_date = fields.Datetime(
         string="Date envoi facture WhatsApp"
+    )
+    
+    x_whatsapp_unpaid_reminder_sent = fields.Boolean(
+        string="Rappel facture impayée WhatsApp envoyé",
+        default=False,
+        help="Indique si un rappel pour facture impayée a été envoyé via WhatsApp"
+    )
+    
+    x_whatsapp_unpaid_reminder_sent_date = fields.Datetime(
+        string="Date envoi rappel facture impayée WhatsApp"
     )
 
     def write(self, vals):
@@ -162,6 +187,215 @@ class AccountMove(models.Model):
         except Exception as e:
             _logger.exception("Erreur lors de l'envoi du message WhatsApp de montant résiduel pour la facture %s", self.name)
             # Ne lève pas d'exception pour ne pas bloquer la modification de la facture
+    
+    def action_send_invoice_details_whatsapp(self):
+        """Envoie les détails de la facture par WhatsApp avec un bouton Payer"""
+        self.ensure_one()
+        
+        # Vérifie qu'il y a un partenaire avec un numéro de téléphone
+        if not self.partner_id:
+            raise ValidationError(_("La facture n'a pas de partenaire associé."))
+        
+        # Vérifie si le partenaire a un numéro de téléphone
+        phone = self.partner_id.phone or self.partner_id.mobile
+        if not phone:
+            raise ValidationError(_("Le partenaire %s n'a pas de numéro de téléphone.") % self.partner_id.name)
+        
+        # Récupère la configuration WhatsApp active
+        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not whatsapp_config:
+            raise ValidationError(_("Aucune configuration WhatsApp active trouvée."))
+        
+        try:
+            # S'assure que les liens de paiement existent
+            if hasattr(self, '_ensure_payment_links'):
+                self._ensure_payment_links()
+            elif not self.payment_link_wave or not self.payment_link_orange_money:
+                # Si la méthode n'existe pas, on génère les liens si possible
+                if hasattr(self, 'transaction_id') and self.transaction_id:
+                    base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url', '')
+                    if not self.payment_link_wave:
+                        self.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={self.transaction_id}"
+                    if not self.payment_link_orange_money:
+                        self.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={self.transaction_id}"
+            
+            # Construit le message avec les détails de la facture
+            details_message = f"📋 Détails de la facture {self.name}\n\n"
+            
+            # Informations générales
+            details_message += f"Client : {self.partner_id.name if self.partner_id else 'N/A'}\n"
+            details_message += f"Numéro : {self.name}\n"
+            if self.invoice_date:
+                details_message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
+            if self.invoice_date_due:
+                details_message += f"Date d'échéance : {self.invoice_date_due.strftime('%d/%m/%Y')}\n"
+            details_message += f"Montant total : {self.amount_total:.0f} {self.currency_id.symbol}\n"
+            details_message += f"Montant restant à payer : {self.amount_residual:.0f} {self.currency_id.symbol}\n\n"
+            
+            # Liste des produits/lignes
+            if self.invoice_line_ids:
+                details_message += "📦 Articles :\n"
+                details_message += "─" * 30 + "\n"
+                
+                for line in self.invoice_line_ids:
+                    product_name = line.product_id.name if line.product_id else line.name
+                    quantity = line.quantity
+                    unit_price = line.price_unit
+                    subtotal = line.price_subtotal
+                    
+                    # Formate le nom du produit (limite à 30 caractères pour WhatsApp)
+                    if len(product_name) > 30:
+                        product_name = product_name[:27] + "..."
+                    
+                    details_message += f"• {product_name}\n"
+                    details_message += f"  Qté : {quantity:.0f}"
+                    
+                    # Affiche l'unité si disponible
+                    if line.product_uom_id:
+                        details_message += f" {line.product_uom_id.name}"
+                    
+                    details_message += f" × {unit_price:.0f} {self.currency_id.symbol}\n"
+                    details_message += f"  Sous-total : {subtotal:.0f} {self.currency_id.symbol}\n\n"
+            else:
+                details_message += "📦 Aucun article dans cette facture.\n\n"
+            
+            # Totaux
+            details_message += "─" * 30 + "\n"
+            details_message += f"Sous-total : {self.amount_untaxed:.0f} {self.currency_id.symbol}\n"
+            
+            if self.amount_tax > 0:
+                details_message += f"TVA : {self.amount_tax:.0f} {self.currency_id.symbol}\n"
+            
+            details_message += f"Total : {self.amount_total:.0f} {self.currency_id.symbol}\n\n"
+            
+            # Footer
+            details_message += "─" * 30 + "\n"
+            details_message += "Équipe CCBM Shop"
+            
+            # Génère le PDF pour le bouton de téléchargement
+            pdf_url = None
+            try:
+                # Essaie plusieurs méthodes pour trouver le rapport
+                report = None
+                report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+                
+                for report_name in report_names:
+                    try:
+                        report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                        if report and report.exists() and report.id:
+                            break
+                        else:
+                            report = None
+                    except:
+                        report = None
+                        continue
+                
+                if not report or not report.exists():
+                    report = self.env['ir.actions.report'].search([
+                        ('report_name', 'in', report_names),
+                        ('model', '=', 'account.move')
+                    ], limit=1)
+                
+                if report and report.exists():
+                    # Génère le PDF
+                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    
+                    if pdf_content:
+                        # Crée un attachment public pour le PDF
+                        attachment = self.env['ir.attachment'].create({
+                            'name': f"{self.name}.pdf",
+                            'type': 'binary',
+                            'datas': base64.b64encode(pdf_content),
+                            'res_model': 'account.move',
+                            'res_id': self.id,
+                            'public': True,
+                        })
+                        
+                        # Génère l'URL publique de téléchargement
+                        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                        pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
+                        _logger.info("URL PDF générée pour la facture %s: %s", self.name, pdf_url)
+            except Exception as e:
+                _logger.warning("Erreur lors de la génération du PDF pour la facture %s: %s", self.name, str(e))
+            
+            # Crée les boutons pour le message interactif
+            # WhatsApp exige entre 1 et 3 boutons
+            buttons = []
+            
+            # Bouton "Payer" si montant résiduel > 0
+            if self.amount_residual > 0:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_invoice_{self.id}",
+                        "title": "Payer"
+                    }
+                })
+            
+            # Bouton "Télécharger PDF" si disponible
+            if pdf_url:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_download_invoice_{self.id}",
+                        "title": "Télécharger PDF"
+                    }
+                })
+            
+            # Si aucun bouton n'est disponible, on en ajoute un par défaut pour que le message soit interactif
+            if not buttons:
+                # Ajoute un bouton "Voir détails" par défaut pour que le message soit toujours interactif
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_view_invoice_{self.id}",
+                        "title": "Voir détails"
+                    }
+                })
+            
+            # Envoie toujours un message interactif avec au moins 1 bouton
+            result = whatsapp_config.send_interactive_message(
+                to_phone=phone,
+                body_text=details_message,
+                buttons=buttons
+            )
+            
+            # Crée ou met à jour la conversation
+            conversation = self.env['whatsapp.conversation'].search([
+                ('phone', '=', phone),
+                ('contact_id', '=', self.partner_id.id)
+            ], limit=1)
+            
+            if not conversation:
+                conversation = self.env['whatsapp.conversation'].create({
+                    'name': f"{self.partner_id.name} - {phone}",
+                    'phone': phone,
+                    'contact_id': self.partner_id.id,
+                    'contact_name': self.partner_id.name,
+                })
+            
+            # Lie le message à la conversation
+            if result.get('message_record') and conversation:
+                result['message_record'].conversation_id = conversation.id
+                result['message_record'].contact_id = self.partner_id.id
+            
+            # Retourne une notification de succès
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Succès'),
+                    'message': _('Détails de la facture envoyés par WhatsApp à %s') % self.partner_id.name,
+                    'type': 'success',
+                    'sticky': False,
+                }
+            }
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            _logger.exception("Erreur lors de l'envoi des détails de la facture")
+            raise ValidationError(_("Erreur lors de l'envoi des détails : %s") % str(e))
     
     def action_send_whatsapp_invoice(self):
         """Action pour envoyer la facture par WhatsApp (appelée depuis le bouton)"""
@@ -318,14 +552,14 @@ class AccountMove(models.Model):
                         raise Exception("Le rapport n'existe plus")
                     
                     # _render_qweb_pdf sur un objet report attend un ID unique (int)
-                    pdf_content, _ = report._render_qweb_pdf(self.id)
+                    pdf_content, _unused = report._render_qweb_pdf(self.id)
                 except Exception as e:
                     _logger.warning("Erreur lors de la génération du PDF avec le rapport %s pour la facture %s: %s", 
                                   report.report_name if report else 'N/A', self.name, str(e))
                     # Essaie avec la méthode de classe en passant le nom du rapport
                     try:
                         if report and report.report_name:
-                            pdf_content, _ = self.env['ir.actions.report']._render_qweb_pdf(
+                            pdf_content, _unused = self.env['ir.actions.report']._render_qweb_pdf(
                                 report.report_name,
                                 self.id
                             )
@@ -573,3 +807,156 @@ class AccountMove(models.Model):
         except Exception as e:
             _logger.exception("Erreur lors de l'envoi de la facture WhatsApp pour %s", self.name)
             # Ne lève pas d'exception pour ne pas bloquer la validation de la facture
+    
+    def _send_unpaid_invoice_reminder(self):
+        """Envoie un rappel pour une facture impayée avec un message interactif et un bouton pour télécharger le PDF"""
+        self.ensure_one()
+        
+        # Vérifie qu'il y a un partenaire avec un numéro de téléphone
+        if not self.partner_id:
+            return
+        
+        # Vérifie si le partenaire a un numéro de téléphone
+        phone = self.partner_id.phone or self.partner_id.mobile
+        if not phone:
+            _logger.info("Pas de numéro de téléphone pour le partenaire %s, rappel facture impayée non envoyé", self.partner_id.name)
+            return
+        
+        # Récupère la configuration WhatsApp active
+        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not whatsapp_config:
+            _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer le rappel de facture impayée")
+            return
+        
+        # Vérifie si le rappel a déjà été envoyé
+        if self.x_whatsapp_unpaid_reminder_sent:
+            _logger.info("Rappel facture impayée %s déjà envoyé, envoi ignoré", self.name)
+            return
+        
+        try:
+            # Nettoie le numéro de téléphone
+            phone = whatsapp_config._validate_phone_number(phone)
+            
+            # Génère le PDF de la facture et crée un lien public
+            pdf_url = None
+            try:
+                # Essaie plusieurs méthodes pour trouver le rapport
+                report = None
+                report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+                
+                for report_name in report_names:
+                    try:
+                        report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                        if report and report.exists() and report.id:
+                            break
+                        else:
+                            report = None
+                    except:
+                        report = None
+                        continue
+                
+                if not report or not report.exists():
+                    report = self.env['ir.actions.report'].search([
+                        ('report_name', 'in', report_names),
+                        ('model', '=', 'account.move')
+                    ], limit=1)
+                
+                if report and report.exists():
+                    # Génère le PDF
+                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    
+                    if pdf_content:
+                        # Crée un attachment public pour le PDF
+                        attachment = self.env['ir.attachment'].create({
+                            'name': f"{self.name}.pdf",
+                            'type': 'binary',
+                            'datas': base64.b64encode(pdf_content),
+                            'res_model': 'account.move',
+                            'res_id': self.id,
+                            'public': True,  # Important : rend le fichier accessible publiquement
+                        })
+                        
+                        # Génère l'URL publique de téléchargement
+                        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                        pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
+                        _logger.info("URL PDF générée pour la facture %s: %s", self.name, pdf_url)
+                else:
+                    _logger.warning("Aucun rapport trouvé pour générer le PDF de la facture %s", self.name)
+            except Exception as e:
+                _logger.warning("Erreur lors de la génération du PDF pour la facture %s: %s", self.name, str(e))
+            
+            # Prépare le message avec les détails de la facture
+            days_overdue = 0
+            if self.invoice_date_due:
+                today = fields.Date.today()
+                days_overdue = (today - self.invoice_date_due).days
+            
+            message = f"Bonjour {self.partner_id.name},\n\n"
+            message += f"📋 Rappel : Votre facture {self.name} n'est pas encore payée.\n\n"
+            message += f"Montant dû : {self.amount_residual:.0f} F CFA\n"
+            message += f"Montant total : {self.amount_total:.0f} F CFA\n"
+            if self.invoice_date:
+                message += f"Date facture : {self.invoice_date.strftime('%d/%m/%Y')}\n"
+            if self.invoice_date_due:
+                message += f"Date d'échéance : {self.invoice_date_due.strftime('%d/%m/%Y')}\n"
+            if days_overdue > 0:
+                message += f"Jours de retard : {days_overdue}\n"
+            message += "\nVeuillez régler cette facture dans les plus brefs délais."
+            
+            # Crée un bouton pour télécharger le PDF
+            buttons = []
+            if pdf_url:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_download_invoice_{self.id}",
+                        "title": "Télécharger PDF"
+                    }
+                })
+            
+            # Envoie le message : interactif si boutons, texte sinon
+            if buttons:
+                # Message interactif avec bouton(s) - WhatsApp exige entre 1 et 3 boutons
+                result = whatsapp_config.send_interactive_message(
+                    to_phone=phone,
+                    body_text=message,
+                    buttons=buttons
+                )
+            else:
+                # Message texte simple si pas de boutons (PDF non disponible)
+                result = whatsapp_config.send_text_to_partner(
+                    partner_id=self.partner_id.id,
+                    message_text=message
+                )
+            
+            # Crée ou met à jour la conversation
+            conversation = self.env['whatsapp.conversation'].search([
+                ('phone', '=', phone),
+                ('contact_id', '=', self.partner_id.id)
+            ], limit=1)
+            
+            if not conversation:
+                conversation = self.env['whatsapp.conversation'].create({
+                    'name': f"{self.partner_id.name} - {phone}",
+                    'phone': phone,
+                    'contact_id': self.partner_id.id,
+                    'contact_name': self.partner_id.name,
+                })
+            
+            # Lie le message à la conversation
+            if result.get('message_record') and conversation:
+                result['message_record'].conversation_id = conversation.id
+                result['message_record'].contact_id = self.partner_id.id
+            
+            # Marque le rappel comme envoyé si l'envoi a réussi
+            if result.get('success'):
+                self.sudo().write({
+                    'x_whatsapp_unpaid_reminder_sent': True,
+                    'x_whatsapp_unpaid_reminder_sent_date': fields.Datetime.now()
+                })
+                _logger.info("Rappel facture impayée WhatsApp envoyé avec succès pour la facture %s", self.name)
+            else:
+                _logger.warning("Échec de l'envoi du rappel facture impayée pour %s: %s", self.name, result.get('error', 'Erreur inconnue'))
+                
+        except Exception as e:
+            _logger.exception("Erreur lors de l'envoi du rappel facture impayée pour la facture %s: %s", self.name, str(e))

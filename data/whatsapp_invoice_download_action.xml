@@ -9,6 +9,10 @@
         <field name="python_code"><![CDATA[
 import base64
 
+_logger.info("=== Début action téléchargement facture ===")
+_logger.info("Button ID reçu: %s", button_id)
+_logger.info("Message phone: %s", message.phone if message else 'N/A')
+
 # Extrait l'ID de la facture depuis le button_id
 invoice_id = None
 invoice = None
@@ -33,18 +37,35 @@ if button_id and button_id.startswith('btn_download_invoice_'):
 
 # Si pas trouvé par ID, cherche par numéro de téléphone du partenaire
 if not invoice:
+    _logger.info("Facture non trouvée par ID, recherche par numéro de téléphone: %s", message.phone)
     phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
     if not phone_clean.startswith('+'):
         phone_clean = '+' + phone_clean.lstrip('+')
     
+    # Cherche d'abord avec le numéro exact
     invoice = env['account.move'].search([
-        ('partner_id.phone', 'ilike', phone_clean),
+        ('partner_id.phone', '=', phone_clean),
         ('move_type', 'in', ['out_invoice', 'out_refund']),
-        ('state', '=', 'posted'),
-        ('amount_residual', '>', 0)
+        ('state', '=', 'posted')
     ], order='create_date desc', limit=1)
+    
+    # Si pas trouvé, cherche avec ilike (moins restrictif)
+    if not invoice:
+        invoice = env['account.move'].search([
+            ('partner_id.phone', 'ilike', phone_clean),
+            ('move_type', 'in', ['out_invoice', 'out_refund']),
+            ('state', '=', 'posted')
+        ], order='create_date desc', limit=1)
+    
+    if invoice:
+        _logger.info("Facture trouvée par numéro de téléphone: %s", invoice.name)
+    else:
+        _logger.warning("Aucune facture trouvée pour le numéro %s", phone_clean)
 
 if invoice:
+    _logger.info("✅ Facture trouvée: %s (ID: %s), Partenaire: %s (ID: %s)", 
+               invoice.name, invoice.id, invoice.partner_id.name if invoice.partner_id else 'N/A', 
+               invoice.partner_id.id if invoice.partner_id else 'N/A')
     try:
         # Essaie plusieurs méthodes pour trouver le rapport
         report = None
@@ -69,7 +90,7 @@ if invoice:
         
         if report and report.exists():
             # Génère le PDF
-            pdf_content, _ = report._render_qweb_pdf(invoice.id)
+            pdf_content, _unused = report._render_qweb_pdf(invoice.id)
             
             if pdf_content:
                 # Crée un attachment public pour le PDF
@@ -87,24 +108,42 @@ if invoice:
                 pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
                 
                 # Envoie le message avec le lien de téléchargement
-                if message.config_id:
+                config = message.config_id
+                if not config:
+                    # Essaie de récupérer la configuration active
+                    config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                    _logger.info("Configuration récupérée depuis message.config_id: %s, depuis recherche: %s", 
+                               message.config_id, config.id if config else None)
+                
+                if config:
                     download_message = f"📄 Voici le lien pour télécharger votre facture {invoice.name} :\n\n"
                     download_message += f"{pdf_url}\n\n"
                     download_message += f"Montant : {invoice.amount_total:.0f} F CFA"
                     
-                    result = message.config_id.send_text_to_partner(
-                        partner_id=invoice.partner_id.id,
-                        message_text=download_message
-                    )
+                    _logger.info("Tentative d'envoi du message de téléchargement pour la facture %s au partenaire %s (ID: %s)", 
+                               invoice.name, invoice.partner_id.name, invoice.partner_id.id)
                     
-                    if result and isinstance(result, dict) and result.get('success'):
-                        _logger.info("Lien de téléchargement envoyé pour la facture %s", invoice.name)
-                        message.content = f"Lien PDF facture {invoice.name} envoyé"
-                    else:
-                        _logger.warning("Échec de l'envoi du lien de téléchargement pour la facture %s", invoice.name)
-                        message.content = f"Échec envoi lien PDF facture {invoice.name}"
+                    try:
+                        result = config.send_text_to_partner(
+                            partner_id=invoice.partner_id.id,
+                            message_text=download_message
+                        )
+                        
+                        _logger.info("Résultat de l'envoi pour la facture %s: %s", invoice.name, result)
+                        
+                        if result and isinstance(result, dict) and result.get('success'):
+                            _logger.info("✅ Lien de téléchargement envoyé avec succès pour la facture %s", invoice.name)
+                            message.content = f"Lien PDF facture {invoice.name} envoyé"
+                        else:
+                            error_msg = result.get('error', 'Erreur inconnue') if isinstance(result, dict) else str(result)
+                            _logger.warning("❌ Échec de l'envoi du lien de téléchargement pour la facture %s: %s", invoice.name, error_msg)
+                            message.content = f"Échec envoi lien PDF facture {invoice.name}: {error_msg}"
+                    except Exception as e:
+                        _logger.exception("Erreur lors de l'envoi du message de téléchargement pour la facture %s", invoice.name)
+                        message.content = f"Erreur envoi: {str(e)}"
                 else:
-                    _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien de téléchargement")
+                    _logger.error("❌ Configuration WhatsApp non trouvée pour envoyer le lien de téléchargement (message.config_id: %s)", 
+                                message.config_id.id if message.config_id else None)
                     message.content = "Configuration WhatsApp non trouvée"
             else:
                 _logger.warning("Impossible de générer le PDF pour la facture %s", invoice.name)
@@ -116,8 +155,10 @@ if invoice:
         _logger.error("Erreur lors de la génération et envoi du PDF pour la facture %s: %s", invoice.name, str(e))
         message.content = f"Erreur génération PDF: {str(e)}"
 else:
-    _logger.warning("Aucune facture trouvée pour téléchargement via WhatsApp - Bouton: %s, Numéro: %s", button_id, message.phone)
+    _logger.warning("❌ Aucune facture trouvée pour téléchargement via WhatsApp - Bouton: %s, Numéro: %s", button_id, message.phone if message else 'N/A')
     message.content = "Aucune facture trouvée pour téléchargement"
+
+_logger.info("=== Fin action téléchargement facture ===")
 ]]></field>
         <field name="sequence">10</field>
         <field name="active">True</field>

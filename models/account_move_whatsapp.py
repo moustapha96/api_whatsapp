@@ -944,11 +944,12 @@ class AccountMove(models.Model):
         # Nettoie le numéro de téléphone
         phone = whatsapp_config._validate_phone_number(phone)
         
-        # Recherche toutes les factures du partenaire (validées)
+        # Recherche toutes les factures du partenaire (validées) qui ne sont pas totalement payées
         invoices = self.search([
             ('partner_id', '=', partner.id),
             ('move_type', 'in', ['out_invoice', 'out_refund']),
-            ('state', '=', 'posted')
+            ('state', '=', 'posted'),
+            ('amount_residual', '>', 0)  # Uniquement les factures non totalement payées
         ], order='create_date desc')
         
         if not invoices:

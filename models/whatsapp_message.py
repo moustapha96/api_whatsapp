@@ -464,6 +464,25 @@ class WhatsappMessage(models.Model):
                     rec._process_button_action(interactive)
                 except Exception as e:
                     _logger.exception("Erreur lors du traitement de l'action de bouton pour le message %s", rec.id)
+            
+            # Si c'est un message texte, vérifie s'il faut déclencher l'envoi automatique des factures
+            if mtype == "text" and text_body:
+                try:
+                    # Cherche l'action automatique d'envoi de toutes les factures
+                    auto_action = self.env['whatsapp.button.action'].search([
+                        ('button_id', '=', 'auto_send_all_invoices'),
+                        ('active', '=', True)
+                    ], limit=1)
+                    
+                    if auto_action:
+                        _logger.info("Action automatique d'envoi de factures trouvée, vérification des mots-clés...")
+                        # Exécute l'action automatique
+                        try:
+                            auto_action.execute_action(rec, contact)
+                        except Exception as e:
+                            _logger.exception("Erreur lors de l'exécution de l'action automatique d'envoi de factures : %s", str(e))
+                except Exception as e:
+                    _logger.debug("Erreur lors de la vérification de l'action automatique : %s", str(e))
 
         # Statuts (message status updates)
         for st in statuses:

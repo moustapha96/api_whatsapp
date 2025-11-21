@@ -189,71 +189,27 @@ if invoice:
         payment_link_wave = getattr(invoice, 'payment_link_wave', None)
     
     if payment_link_wave:
-        # Essaie d'abord d'utiliser un template WhatsApp avec bouton URL
-        # Si le template n'est pas disponible, utilise un message texte
+        # Envoie le lien de paiement Wave dans un message texte
+        # WhatsApp rend automatiquement les URLs cliquables dans les messages texte
         if message.config_id:
-            try:
-                # Essaie d'envoyer avec le template "paiement_wave"
-                components = [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "text": invoice.name},  # {{1}} - Numéro facture
-                            {"type": "text", "text": f"{invoice.amount_residual:.0f}"},  # {{2}} - Montant
-                            {"type": "text", "text": invoice.currency_id.symbol or "CFA"}  # {{3}} - Devise
-                        ]
-                    },
-                    {
-                        "type": "button",
-                        "sub_type": "url",
-                        "index": "0",  # Index du premier bouton (0-based)
-                        "parameters": [
-                            {
-                                "type": "text",
-                                "text": invoice.payment_link_wave  # {{4}} - URL de paiement
-                            }
-                        ]
-                    }
-                ]
-                
-                result = message.config_id.send_template_message(
-                    to_phone=message.phone,
-                    template_name="paiement_wave",
-                    language_code="fr",
-                    components=components
-                )
-                
-                if result and isinstance(result, dict) and result.get('success'):
-                    _logger.info("Template paiement_wave envoyé avec succès pour la facture %s", invoice.name)
-                    message.content = f"Template Wave facture {invoice.name} envoyé"
-                else:
-                    raise Exception("Template non disponible ou erreur")
-                    
-            except Exception as e:
-                _logger.info("Template paiement_wave non disponible, utilisation message texte: %s", str(e))
-                # Fallback : message texte avec lien cliquable
-                wave_message = f"💳 Paiement Wave pour la facture {invoice.name}\n\n"
-                wave_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
-                wave_message += f"Cliquez sur le lien ci-dessous pour payer avec Wave :\n\n"
-                wave_message += f"{invoice.payment_link_wave}\n\n"
-                wave_message += "─" * 30 + "\n"
-                wave_message += "Équipe CCBM Shop"
-                
-                try:
-                    result = message.config_id.send_text_to_partner(
-                        partner_id=invoice.partner_id.id,
-                        message_text=wave_message
-                    )
-                    
-                    if result and isinstance(result, dict) and result.get('success'):
-                        _logger.info("Lien de paiement Wave envoyé (message texte) pour la facture %s", invoice.name)
-                        message.content = f"Lien Wave facture {invoice.name} envoyé"
-                    else:
-                        _logger.warning("Échec de l'envoi du lien Wave pour la facture %s", invoice.name)
-                        message.content = f"Échec envoi lien Wave: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
-                except Exception as e2:
-                    _logger.exception("Erreur lors de l'envoi du message texte Wave pour la facture %s", invoice.name)
-                    message.content = f"Erreur envoi: {str(e2)}"
+            wave_message = f"💳 Paiement Wave pour la facture {invoice.name}\n\n"
+            wave_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
+            wave_message += f"Cliquez sur le lien ci-dessous pour payer avec Wave :\n\n"
+            wave_message += f"{invoice.payment_link_wave}\n\n"
+            wave_message += "─" * 30 + "\n"
+            wave_message += "Équipe CCBM Shop"
+            
+            result = message.config_id.send_text_to_partner(
+                partner_id=invoice.partner_id.id,
+                message_text=wave_message
+            )
+            
+            if result and isinstance(result, dict) and result.get('success'):
+                _logger.info("Lien de paiement Wave envoyé pour la facture %s", invoice.name)
+                message.content = f"Lien Wave facture {invoice.name} envoyé"
+            else:
+                _logger.warning("Échec de l'envoi du lien Wave pour la facture %s", invoice.name)
+                message.content = f"Échec envoi lien Wave: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
         else:
             _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien Wave")
             message.content = "Configuration WhatsApp non trouvée"
@@ -327,71 +283,27 @@ if invoice:
         payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
     
     if payment_link_orange:
-        # Essaie d'abord d'utiliser un template WhatsApp avec bouton URL
-        # Si le template n'est pas disponible, utilise un message texte
+        # Envoie le lien de paiement Orange Money dans un message texte
+        # WhatsApp rend automatiquement les URLs cliquables dans les messages texte
         if message.config_id:
-            try:
-                # Essaie d'envoyer avec le template "paiement_orange"
-                components = [
-                    {
-                        "type": "body",
-                        "parameters": [
-                            {"type": "text", "text": invoice.name},  # {{1}} - Numéro facture
-                            {"type": "text", "text": f"{invoice.amount_residual:.0f}"},  # {{2}} - Montant
-                            {"type": "text", "text": invoice.currency_id.symbol or "CFA"}  # {{3}} - Devise
-                        ]
-                    },
-                    {
-                        "type": "button",
-                        "sub_type": "url",
-                        "index": "0",  # Index du premier bouton (0-based)
-                        "parameters": [
-                            {
-                                "type": "text",
-                                "text": invoice.payment_link_orange_money  # {{4}} - URL de paiement
-                            }
-                        ]
-                    }
-                ]
-                
-                result = message.config_id.send_template_message(
-                    to_phone=message.phone,
-                    template_name="paiement_orange",
-                    language_code="fr",
-                    components=components
-                )
-                
-                if result and isinstance(result, dict) and result.get('success'):
-                    _logger.info("Template paiement_orange envoyé avec succès pour la facture %s", invoice.name)
-                    message.content = f"Template Orange facture {invoice.name} envoyé"
-                else:
-                    raise Exception("Template non disponible ou erreur")
-                    
-            except Exception as e:
-                _logger.info("Template paiement_orange non disponible, utilisation message texte: %s", str(e))
-                # Fallback : message texte avec lien cliquable
-                orange_message = f"💳 Paiement Orange Money pour la facture {invoice.name}\n\n"
-                orange_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
-                orange_message += f"Cliquez sur le lien ci-dessous pour payer avec Orange Money :\n\n"
-                orange_message += f"{invoice.payment_link_orange_money}\n\n"
-                orange_message += "─" * 30 + "\n"
-                orange_message += "Équipe CCBM Shop"
-                
-                try:
-                    result = message.config_id.send_text_to_partner(
-                        partner_id=invoice.partner_id.id,
-                        message_text=orange_message
-                    )
-                    
-                    if result and isinstance(result, dict) and result.get('success'):
-                        _logger.info("Lien de paiement Orange Money envoyé (message texte) pour la facture %s", invoice.name)
-                        message.content = f"Lien Orange Money facture {invoice.name} envoyé"
-                    else:
-                        _logger.warning("Échec de l'envoi du lien Orange Money pour la facture %s", invoice.name)
-                        message.content = f"Échec envoi lien Orange Money: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
-                except Exception as e2:
-                    _logger.exception("Erreur lors de l'envoi du message texte Orange pour la facture %s", invoice.name)
-                    message.content = f"Erreur envoi: {str(e2)}"
+            orange_message = f"💳 Paiement Orange Money pour la facture {invoice.name}\n\n"
+            orange_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
+            orange_message += f"Cliquez sur le lien ci-dessous pour payer avec Orange Money :\n\n"
+            orange_message += f"{invoice.payment_link_orange_money}\n\n"
+            orange_message += "─" * 30 + "\n"
+            orange_message += "Équipe CCBM Shop"
+            
+            result = message.config_id.send_text_to_partner(
+                partner_id=invoice.partner_id.id,
+                message_text=orange_message
+            )
+            
+            if result and isinstance(result, dict) and result.get('success'):
+                _logger.info("Lien de paiement Orange Money envoyé pour la facture %s", invoice.name)
+                message.content = f"Lien Orange Money facture {invoice.name} envoyé"
+            else:
+                _logger.warning("Échec de l'envoi du lien Orange Money pour la facture %s", invoice.name)
+                message.content = f"Échec envoi lien Orange Money: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
         else:
             _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien Orange Money")
             message.content = "Configuration WhatsApp non trouvée"

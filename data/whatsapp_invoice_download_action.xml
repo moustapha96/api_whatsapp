@@ -67,32 +67,62 @@ if invoice:
                invoice.name, invoice.id, invoice.partner_id.name if invoice.partner_id else 'N/A', 
                invoice.partner_id.id if invoice.partner_id else 'N/A')
     try:
-        # Essaie plusieurs méthodes pour trouver le rapport
-        report = None
+        # Essaie plusieurs méthodes pour trouver le rapport et générer le PDF
+        pdf_content = None
         report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
         
+        # Méthode 1 : Utilise _get_report_from_name
         for report_name in report_names:
             try:
                 report = env['ir.actions.report']._get_report_from_name(report_name)
-                if report and report.exists() and report.id:
-                    break
-                else:
-                    report = None
-            except:
-                report = None
+                if report and report.exists():
+                    try:
+                        pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                        if pdf_content:
+                            _logger.info("PDF généré avec succès via _get_report_from_name (%s)", report_name)
+                            break
+                    except Exception as e:
+                        _logger.debug("Erreur lors de la génération PDF avec rapport %s: %s", report_name, str(e))
+                        pdf_content = None
+                        continue
+            except Exception as e:
+                _logger.debug("Erreur lors de la recherche du rapport %s: %s", report_name, str(e))
                 continue
         
-        if not report or not report.exists():
-            report = env['ir.actions.report'].search([
-                ('report_name', 'in', report_names),
-                ('model', '=', 'account.move')
-            ], limit=1)
+        # Méthode 2 : Si pas de PDF, cherche directement dans la base
+        if not pdf_content:
+            try:
+                report = env['ir.actions.report'].search([
+                    ('report_name', 'in', report_names),
+                    ('model', '=', 'account.move')
+                ], limit=1)
+                
+                if report and report.exists():
+                    try:
+                        pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                        if pdf_content:
+                            _logger.info("PDF généré avec succès via recherche directe")
+                    except Exception as e:
+                        _logger.debug("Erreur lors de la génération PDF avec rapport trouvé: %s", str(e))
+                        pdf_content = None
+            except Exception as e:
+                _logger.debug("Erreur lors de la recherche directe du rapport: %s", str(e))
         
-        if report and report.exists():
-            # Génère le PDF
-            pdf_content, _unused = report._render_qweb_pdf(invoice.id)
-            
-            if pdf_content:
+        # Méthode 3 : Utilise _render_qweb_pdf directement avec le nom du rapport
+        if not pdf_content:
+            for report_name in report_names:
+                try:
+                    pdf_content, _unused = env['ir.actions.report']._render_qweb_pdf(report_name, invoice.id)
+                    if pdf_content:
+                        _logger.info("PDF généré avec succès via _render_qweb_pdf direct (%s)", report_name)
+                        break
+                except Exception as e:
+                    _logger.debug("Erreur lors de la génération PDF directe avec %s: %s", report_name, str(e))
+                    pdf_content = None
+                    continue
+        
+        if pdf_content:
+            try:
                 # Crée un attachment public pour le PDF
                 attachment = env['ir.attachment'].create({
                     'name': f"{invoice.name}.pdf",
@@ -105,9 +135,18 @@ if invoice:
                 
                 # Génère l'URL publique de téléchargement
                 base_url = env['ir.config_parameter'].sudo().get_param('web.base.url')
-                pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
-                
-                # Envoie le message avec le lien de téléchargement
+                if not base_url:
+                    _logger.warning("web.base.url non configuré, impossible de générer l'URL de téléchargement")
+                    pdf_url = None
+                else:
+                    pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
+                    _logger.info("URL PDF générée: %s", pdf_url)
+            except Exception as e:
+                _logger.error("Erreur lors de la création de l'attachement PDF: %s", str(e))
+                pdf_url = None
+            
+            # Envoie le message avec le lien de téléchargement
+            if pdf_url:
                 config = message.config_id
                 if not config:
                     # Essaie de récupérer la configuration active
@@ -146,11 +185,67 @@ if invoice:
                                 message.config_id.id if message.config_id else None)
                     message.content = "Configuration WhatsApp non trouvée"
             else:
-                _logger.warning("Impossible de générer le PDF pour la facture %s", invoice.name)
-                message.content = f"Erreur génération PDF facture {invoice.name}"
+                # Pas d'URL, envoie quand même un message avec les détails de la facture
+                _logger.warning("Impossible de générer l'URL PDF pour la facture %s, envoi message texte avec détails", invoice.name)
+                config = message.config_id
+                if not config:
+                    config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                
+                if config:
+                    details_message = f"📄 Détails de votre facture {invoice.name}\n\n"
+                    details_message += f"Montant total : {invoice.amount_total:.0f} F CFA\n"
+                    if invoice.invoice_date:
+                        details_message += f"Date : {invoice.invoice_date.strftime('%d/%m/%Y')}\n"
+                    details_message += "\nLe PDF n'est pas disponible pour le moment."
+                    details_message += "\nVeuillez contacter le service client."
+                    
+                    try:
+                        result = config.send_text_to_partner(
+                            partner_id=invoice.partner_id.id,
+                            message_text=details_message
+                        )
+                        if result and isinstance(result, dict) and result.get('success'):
+                            _logger.info("Message texte avec détails envoyé pour la facture %s", invoice.name)
+                            message.content = f"Détails facture {invoice.name} envoyés (sans PDF)"
+                        else:
+                            _logger.warning("Échec envoi message texte pour facture %s", invoice.name)
+                            message.content = f"Erreur envoi détails facture {invoice.name}"
+                    except Exception as e:
+                        _logger.exception("Erreur lors de l'envoi du message texte pour la facture %s", invoice.name)
+                        message.content = f"Erreur envoi: {str(e)}"
+                else:
+                    message.content = "Configuration WhatsApp non trouvée"
         else:
-            _logger.warning("Aucun rapport trouvé pour générer le PDF de la facture %s", invoice.name)
-            message.content = f"Rapport PDF non trouvé pour facture {invoice.name}"
+            # Impossible de générer le PDF, envoie quand même un message avec les détails
+            _logger.warning("Impossible de générer le PDF pour la facture %s (aucune méthode n'a fonctionné), envoi message texte avec détails", invoice.name)
+            config = message.config_id
+            if not config:
+                config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+            
+            if config:
+                details_message = f"📄 Détails de votre facture {invoice.name}\n\n"
+                details_message += f"Montant total : {invoice.amount_total:.0f} F CFA\n"
+                if invoice.invoice_date:
+                    details_message += f"Date : {invoice.invoice_date.strftime('%d/%m/%Y')}\n"
+                details_message += "\nLe PDF n'est pas disponible pour le moment."
+                details_message += "\nVeuillez contacter le service client."
+                
+                try:
+                    result = config.send_text_to_partner(
+                        partner_id=invoice.partner_id.id,
+                        message_text=details_message
+                    )
+                    if result and isinstance(result, dict) and result.get('success'):
+                        _logger.info("Message texte avec détails envoyé pour la facture %s (PDF non disponible)", invoice.name)
+                        message.content = f"Détails facture {invoice.name} envoyés (sans PDF)"
+                    else:
+                        _logger.warning("Échec envoi message texte pour facture %s", invoice.name)
+                        message.content = f"Erreur envoi détails facture {invoice.name}"
+                except Exception as e:
+                    _logger.exception("Erreur lors de l'envoi du message texte pour la facture %s", invoice.name)
+                    message.content = f"Erreur envoi: {str(e)}"
+            else:
+                message.content = "Configuration WhatsApp non trouvée"
     except Exception as e:
         _logger.error("Erreur lors de la génération et envoi du PDF pour la facture %s: %s", invoice.name, str(e))
         message.content = f"Erreur génération PDF: {str(e)}"

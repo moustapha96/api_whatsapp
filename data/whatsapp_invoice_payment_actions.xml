@@ -75,7 +75,7 @@ if invoice:
                     "type": "reply",
                     "reply": {
                         "id": f"btn_pay_wave_{invoice.id}",
-                        "title": "Payer avec Wave"
+                        "title": "Payer Wave"  # Limite WhatsApp: 20 caractères max
                     }
                 })
             if payment_link_orange:
@@ -83,7 +83,7 @@ if invoice:
                     "type": "reply",
                     "reply": {
                         "id": f"btn_pay_orange_{invoice.id}",
-                        "title": "Payer avec Orange Money"
+                        "title": "Payer Orange"  # Limite WhatsApp: 20 caractères max (était 22)
                     }
                 })
         

@@ -331,28 +331,29 @@ class AccountMove(models.Model):
             # WhatsApp exige entre 1 et 3 boutons
             buttons = []
             
-            # Boutons de paiement (type URL) si montant résiduel > 0 ET si les attributs de paiement existent
+            # Boutons de paiement (type reply) si montant résiduel > 0 ET si les attributs de paiement existent
+            # Les boutons reply déclencheront une action qui enverra le lien de paiement
             if self.amount_residual > 0 and has_payment_links:
                 # Vérifie que les liens de paiement sont disponibles
                 payment_link_wave = getattr(self, 'payment_link_wave', None)
                 payment_link_orange = getattr(self, 'payment_link_orange_money', None)
                 
-                # Bouton Wave (type URL)
+                # Bouton Wave (type reply qui enverra le lien)
                 if payment_link_wave:
                     buttons.append({
-                        "type": "url",
-                        "url": {
-                            "url": payment_link_wave,
+                        "type": "reply",
+                        "reply": {
+                            "id": f"btn_pay_wave_{self.id}",
                             "title": "Payer Wave"
                         }
                     })
                 
-                # Bouton Orange Money (type URL)
+                # Bouton Orange Money (type reply qui enverra le lien)
                 if payment_link_orange:
                     buttons.append({
-                        "type": "url",
-                        "url": {
-                            "url": payment_link_orange,
+                        "type": "reply",
+                        "reply": {
+                            "id": f"btn_pay_orange_{self.id}",
                             "title": "Payer Orange"
                         }
                     })
@@ -1124,27 +1125,28 @@ class AccountMove(models.Model):
         # Crée les boutons pour le message interactif
         buttons = []
         
-        # Boutons de paiement (type URL) si montant résiduel > 0 ET si les attributs de paiement existent
+        # Boutons de paiement (type reply) si montant résiduel > 0 ET si les attributs de paiement existent
+        # Les boutons reply déclencheront une action qui enverra le lien de paiement
         if self.amount_residual > 0 and has_payment_links:
             payment_link_wave = getattr(self, 'payment_link_wave', None)
             payment_link_orange = getattr(self, 'payment_link_orange_money', None)
             
-            # Bouton Wave (type URL)
+            # Bouton Wave (type reply qui enverra le lien)
             if payment_link_wave:
                 buttons.append({
-                    "type": "url",
-                    "url": {
-                        "url": payment_link_wave,
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_wave_{self.id}",
                         "title": "Payer Wave"
                     }
                 })
             
-            # Bouton Orange Money (type URL)
+            # Bouton Orange Money (type reply qui enverra le lien)
             if payment_link_orange:
                 buttons.append({
-                    "type": "url",
-                    "url": {
-                        "url": payment_link_orange,
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_orange_{self.id}",
                         "title": "Payer Orange"
                     }
                 })

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Menu d'accueil automatique (Salut / Bonjour) avec bouton "Mes factures" -->
+<odoo>
+    <record id="action_whatsapp_greeting_menu" model="whatsapp.button.action">
+        <field name="name">Menu d'accueil WhatsApp</field>
+        <field name="button_id">auto_greeting_menu</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+_logger.info("=== Début action menu d'accueil WhatsApp ===")
+
+message_content = (message.content or '').strip().lower()
+_logger.info("Contenu du message pour menu d'accueil: %s", message_content)
+
+# Salutations simples qui déclenchent le menu
+greetings = ['salut', 'bonjour', 'bjr', 'slt', 'salam', 'salem', 'hello', 'hi']
+
+if not any(message_content.startswith(g) for g in greetings):
+    _logger.info("Message ne correspond pas à un message de salut, aucune action de menu.")
+    message.content = "Message reçu"
+else:
+    # Trouve la config WhatsApp active
+    config = message.config_id or env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+    if not config:
+        _logger.warning("Aucune configuration WhatsApp active trouvée pour le menu d'accueil.")
+        message.content = "Configuration WhatsApp introuvable."
+    else:
+        # Prépare le texte du menu
+        partner = message.contact_id
+        name = partner.name if partner else "cher client"
+
+        body_text = f"👋 Bonjour {name},\n\n"
+        body_text += "Bienvenue sur le service WhatsApp CCBM Shop.\n\n"
+        body_text += "Que souhaitez-vous faire ?\n\n"
+        body_text += "1️⃣ Voir mes factures impayées\n"
+        body_text += "2️⃣ Autre demande\n\n"
+        body_text += "Touchez un bouton ci-dessous pour continuer."
+
+        # Boutons :
+        # - "Mes factures" → réutilise le scénario déjà en place via un bouton logique
+        #   On utilise un button_id spécial que nous traiterons comme un texte "mes factures"
+        buttons = [
+            {
+                "type": "reply",
+                "reply": {
+                    "id": "btn_menu_invoices",
+                    "title": "Mes factures",
+                },
+            },
+            {
+                "type": "reply",
+                "reply": {
+                    "id": "btn_menu_other",
+                    "title": "Autre",
+                },
+            },
+        ]
+
+        try:
+            result = config.send_interactive_message(
+                to_phone=message.phone,
+                body_text=body_text,
+                buttons=buttons,
+            )
+            _logger.info("Menu d'accueil WhatsApp envoyé avec succès au numéro %s", message.phone)
+            message.content = "Menu d'accueil envoyé"
+        except Exception as e:
+            _logger.exception("Erreur lors de l'envoi du menu d'accueil WhatsApp: %s", str(e))
+            message.content = f"Erreur menu: {str(e)}"
+
+_logger.info("=== Fin action menu d'accueil WhatsApp ===")
+]]></field>
+        <field name="sequence">3</field>
+        <field name="active">True</field>
+        <field name="description">Répond automatiquement aux salutations (Bonjour / Salut) avec un menu interactif incluant un bouton 'Mes factures'.</field>
+    </record>
+</odoo>
+
+

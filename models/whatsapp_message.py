@@ -468,7 +468,20 @@ class WhatsappMessage(models.Model):
             # Si c'est un message texte, vérifie s'il faut déclencher l'envoi automatique des factures
             if mtype == "text" and text_body:
                 try:
-                    # Cherche l'action automatique d'envoi de toutes les factures
+                    text_lower = text_body.strip().lower()
+
+                    # 1) Menu d'accueil automatique (Bonjour / Salut, etc.)
+                    greeting_action = self.env['whatsapp.button.action'].search([
+                        ('button_id', '=', 'auto_greeting_menu'),
+                        ('active', '=', True)
+                    ], limit=1)
+                    if greeting_action:
+                        try:
+                            greeting_action.execute_action(rec, contact)
+                        except Exception as e:
+                            _logger.exception("Erreur lors de l'exécution de l'action de menu d'accueil : %s", str(e))
+
+                    # 2) Envoi automatique des factures (mots-clés liés aux factures)
                     auto_action = self.env['whatsapp.button.action'].search([
                         ('button_id', '=', 'auto_send_all_invoices'),
                         ('active', '=', True)

@@ -46,17 +46,10 @@ if invoice:
     # Vérifie si les attributs de paiement existent (module res_api_rental)
     has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
     
-    # S'assure que les liens de paiement existent si les attributs sont disponibles
-    if has_payment_links:
-        if hasattr(invoice, '_ensure_payment_links'):
-            invoice._ensure_payment_links()
-        elif not getattr(invoice, 'payment_link_wave', None) or not getattr(invoice, 'payment_link_orange_money', None):
-            if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
-                base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-                if not getattr(invoice, 'payment_link_wave', None):
-                    invoice.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={invoice.transaction_id}"
-                if not getattr(invoice, 'payment_link_orange_money', None):
-                    invoice.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={invoice.transaction_id}"
+    # Si le module a une méthode dédiée, on lui laisse la responsabilité
+    # de remplir payment_link_wave / payment_link_orange_money.
+    if has_payment_links and hasattr(invoice, '_ensure_payment_links'):
+        invoice._ensure_payment_links()
     
     # Envoie un message avec les options de paiement
     if message.config_id:
@@ -176,15 +169,12 @@ if invoice:
     # Vérifie si les attributs de paiement existent
     has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
     
-    # S'assure que le lien Wave existe si les attributs sont disponibles
+    # Si le module a une méthode dédiée, on lui laisse la responsabilité
+    # de remplir payment_link_wave.
     payment_link_wave = None
     if has_payment_links:
         if hasattr(invoice, '_ensure_payment_links'):
             invoice._ensure_payment_links()
-        elif not getattr(invoice, 'payment_link_wave', None):
-            if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
-                base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-                invoice.payment_link_wave = f"{base_url}/paiement?type=wave&transaction={invoice.transaction_id}"
         
         payment_link_wave = getattr(invoice, 'payment_link_wave', None)
     
@@ -270,15 +260,12 @@ if invoice:
     # Vérifie si les attributs de paiement existent
     has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
     
-    # S'assure que le lien Orange Money existe si les attributs sont disponibles
+    # Si le module a une méthode dédiée, on lui laisse la responsabilité
+    # de remplir payment_link_orange_money.
     payment_link_orange = None
     if has_payment_links:
         if hasattr(invoice, '_ensure_payment_links'):
             invoice._ensure_payment_links()
-        elif not getattr(invoice, 'payment_link_orange_money', None):
-            if hasattr(invoice, 'transaction_id') and invoice.transaction_id:
-                base_url = env['ir.config_parameter'].sudo().get_param('web.base.url', '')
-                invoice.payment_link_orange_money = f"{base_url}/paiement?type=orange&transaction={invoice.transaction_id}"
         
         payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
     

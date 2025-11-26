@@ -31,6 +31,7 @@
         "data/whatsapp_invoice_payment_actions.xml",
         "data/whatsapp_send_all_invoices_action.xml",
         "data/whatsapp_cron_data.xml",
+        "data/whatsapp_next_invoice_action.xml",
         "views/whatsapp_config_views.xml",
         "views/whatsapp_send_message_views.xml",
         "views/whatsapp_send_partner_message_views.xml",

@@ -907,7 +907,8 @@ class AccountMove(models.Model):
     
     @api.model
     def send_all_invoices_to_partner_whatsapp(self, partner_id, phone=None, include_links=False):
-        """Envoie toutes les factures d'un partenaire par WhatsApp
+        """Envoie la facture impayée la plus ancienne d'un partenaire par WhatsApp,
+        avec un bouton pour demander la facture impayée suivante.
         
         Args:
             partner_id: ID du partenaire ou objet partenaire
@@ -945,90 +946,92 @@ class AccountMove(models.Model):
         phone = whatsapp_config._validate_phone_number(phone)
         
         # Recherche toutes les factures du partenaire (validées) qui ne sont pas totalement payées
+        # On les trie de la plus ancienne à la plus récente
         invoices = self.search([
             ('partner_id', '=', partner.id),
             ('move_type', 'in', ['out_invoice', 'out_refund']),
             ('state', '=', 'posted'),
-            ('amount_residual', '>', 0)  # Uniquement les factures non totalement payées
-        ], order='create_date desc')
+            ('amount_residual', '>', 0)
+        ], order='invoice_date asc, create_date asc')
         
         if not invoices:
-            _logger.info("Aucune facture trouvée pour le partenaire %s", partner.name)
+            _logger.info("Aucune facture impayée trouvée pour le partenaire %s", partner.name)
             # Envoie un message indiquant qu'il n'y a pas de facture
             no_invoice_message = f"Bonjour {partner.name},\n\n"
-            no_invoice_message += "Vous n'avez actuellement aucune facture.\n\n"
+            no_invoice_message += "Vous n'avez actuellement aucune facture impayée.\n\n"
             no_invoice_message += "Équipe CCBM Shop"
-            
-            result = whatsapp_config.send_text_to_partner(
-                partner_id=partner.id,
-                message_text=no_invoice_message
-            )
-            
+
+            try:
+                result = whatsapp_config.send_text_to_partner(
+                    partner_id=partner.id,
+                    message_text=no_invoice_message
+                )
+                _logger.info("Message 'aucune facture impayée' envoyé pour le partenaire %s", partner.name)
+            except Exception as e:
+                _logger.warning(
+                    "Erreur lors de l'envoi du message 'aucune facture impayée' pour le partenaire %s: %s",
+                    partner.name, str(e)
+                )
+
             return {
                 'success': True,
                 'count': 0,
                 'invoices_sent': [],
-                'message': 'Aucune facture trouvée'
+                'message': 'Aucune facture impayée trouvée'
             }
         
-        _logger.info("Envoi de %d facture(s) au partenaire %s (téléphone: %s)", len(invoices), partner.name, phone)
-        
-        # Envoie d'abord un message d'introduction
-        intro_message = f"Bonjour {partner.name},\n\n"
-        intro_message += f"Voici vos {len(invoices)} facture(s) :\n\n"
-        intro_message += "─" * 30 + "\n"
-        
-        result_intro = whatsapp_config.send_text_to_partner(
-            partner_id=partner.id,
-            message_text=intro_message
+        # On ne renvoie que la facture impayée la plus ancienne
+        first_invoice = invoices[0]
+        _logger.info(
+            "Envoi de la facture impayée la plus ancienne %s au partenaire %s (téléphone: %s)",
+            first_invoice.name, partner.name, phone
         )
-        
-        # Envoie chaque facture avec ses détails
-        invoices_sent = []
-        errors = []
-        
-        for invoice in invoices:
-            try:
-                # Utilise la méthode existante pour envoyer les détails de chaque facture
-                # On simule l'appel de action_send_invoice_details_whatsapp mais sans retourner l'action
-                invoice._send_invoice_details_whatsapp_direct(whatsapp_config, phone, include_links=include_links)
-                invoices_sent.append(invoice.name)
-                _logger.info("Facture %s envoyée avec succès", invoice.name)
-                
-                # Petite pause entre chaque envoi pour éviter de surcharger WhatsApp
-                time.sleep(1)
-                
-            except Exception as e:
-                error_msg = f"Erreur pour {invoice.name}: {str(e)}"
-                errors.append(error_msg)
-                _logger.exception("Erreur lors de l'envoi de la facture %s: %s", invoice.name, str(e))
-        
-        # Envoie un message de clôture
-        if invoices_sent:
-            closing_message = f"\n─" * 30 + "\n"
-            closing_message += f"Total : {len(invoices_sent)} facture(s) envoyée(s).\n\n"
-            closing_message += "Équipe CCBM Shop"
-            
-            whatsapp_config.send_text_to_partner(
-                partner_id=partner.id,
-                message_text=closing_message
+
+        # S'il y a d'autres factures impayées après celle-ci, on prépare un bouton "Facture suivante"
+        next_button_id = None
+        if len(invoices) > 1:
+            # Index de la prochaine facture dans la liste (0 = première, donc 1 = suivante)
+            next_index = 1
+            next_button_id = f"btn_next_invoice_{partner.id}_{next_index}"
+
+        # Envoie la facture avec éventuellement le bouton "Facture suivante"
+        try:
+            result = first_invoice._send_invoice_details_whatsapp_direct(
+                whatsapp_config,
+                phone,
+                include_links=include_links,
+                next_button_id=next_button_id,
             )
-        
+            _logger.info("Facture %s envoyée avec succès", first_invoice.name)
+        except Exception as e:
+            _logger.exception(
+                "Erreur lors de l'envoi de la facture impayée la plus ancienne %s: %s",
+                first_invoice.name, str(e)
+            )
+            return {
+                'success': False,
+                'count': 0,
+                'invoices_sent': [],
+                'errors': [str(e)],
+                'total': len(invoices),
+            }
+
         return {
-            'success': len(errors) == 0,
-            'count': len(invoices_sent),
-            'invoices_sent': invoices_sent,
-            'errors': errors,
-            'total': len(invoices)
+            'success': True,
+            'count': 1,
+            'invoices_sent': [first_invoice.name],
+            'errors': [],
+            'total': len(invoices),
         }
     
-    def _send_invoice_details_whatsapp_direct(self, whatsapp_config, phone, include_links=False):
+    def _send_invoice_details_whatsapp_direct(self, whatsapp_config, phone, include_links=False, next_button_id=None):
         """Envoie les détails d'une facture directement (méthode interne, sans retour d'action)
         
         Args:
             whatsapp_config: Configuration WhatsApp à utiliser
             phone: Numéro de téléphone
             include_links: Si True, inclut le lien de téléchargement directement dans le message texte
+            next_button_id: Si fourni, ajoute un bouton "Facture suivante" avec cet ID
         """
         self.ensure_one()
         
@@ -1125,6 +1128,11 @@ class AccountMove(models.Model):
         
         # Crée les boutons pour le message interactif
         buttons = []
+
+        # Si on veut gérer une navigation "Facture suivante", on réserve de la place
+        # pour ce bouton afin de ne jamais dépasser la limite de 3 boutons WhatsApp.
+        reserve_for_next = bool(next_button_id)
+        max_other_buttons = 2 if reserve_for_next else 3
         
         # Boutons de paiement (type reply) si montant résiduel > 0 ET si les attributs de paiement existent
         # Les boutons reply déclencheront une action qui enverra le lien de paiement
@@ -1133,7 +1141,7 @@ class AccountMove(models.Model):
             payment_link_orange = getattr(self, 'payment_link_orange_money', None)
             
             # Bouton Wave (type reply qui enverra le lien)
-            if payment_link_wave:
+            if payment_link_wave and len(buttons) < max_other_buttons:
                 buttons.append({
                     "type": "reply",
                     "reply": {
@@ -1143,7 +1151,7 @@ class AccountMove(models.Model):
                 })
             
             # Bouton Orange Money (type reply qui enverra le lien)
-            if payment_link_orange:
+            if payment_link_orange and len(buttons) < max_other_buttons:
                 buttons.append({
                     "type": "reply",
                     "reply": {
@@ -1153,13 +1161,23 @@ class AccountMove(models.Model):
                 })
         
         # Bouton "Télécharger PDF" (type reply pour déclencher l'action de téléchargement)
-        if pdf_url:
+        if pdf_url and len(buttons) < max_other_buttons:
             buttons.append({
                 "type": "reply",
                 "reply": {
                     "id": f"btn_download_invoice_{self.id}",
                     "title": "Télécharger PDF"
                 }
+            })
+
+        # Bouton "Facture suivante" si demandé et si on a encore de la place
+        if next_button_id and len(buttons) < 3:
+            buttons.append({
+                "type": "reply",
+                "reply": {
+                    "id": next_button_id,
+                    "title": "Facture suivante",
+                },
             })
         
         # Envoie le message : interactif si boutons disponibles, texte sinon

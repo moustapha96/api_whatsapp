@@ -465,7 +465,7 @@ class WhatsappMessage(models.Model):
                 except Exception as e:
                     _logger.exception("Erreur lors du traitement de l'action de bouton pour le message %s", rec.id)
             
-            # Si c'est un message texte, vérifie s'il faut déclencher l'envoi automatique des factures
+            # Si c'est un message texte, vérifie s'il faut déclencher des actions automatiques
             if mtype == "text" and text_body:
                 try:
                     text_lower = text_body.strip().lower()
@@ -489,13 +489,32 @@ class WhatsappMessage(models.Model):
                     
                     if auto_action:
                         _logger.info("Action automatique d'envoi de factures trouvée, vérification des mots-clés...")
-                        # Exécute l'action automatique
                         try:
                             auto_action.execute_action(rec, contact)
                         except Exception as e:
                             _logger.exception("Erreur lors de l'exécution de l'action automatique d'envoi de factures : %s", str(e))
+
+                    # 3) Réponse automatique aux messages de remerciement ("merci", "thanks", etc.)
+                    thanks_keywords = ["merci", "thanks", "thank you", "thx"]
+                    if any(k in text_lower for k in thanks_keywords):
+                        try:
+                            config_thanks = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                            if config_thanks and rec.phone:
+                                info_message = (
+                                    "🙏 Merci pour votre message.\n\n"
+                                    "ℹ️ Informations Touba Sandaga :\n"
+                                    "• Site : portail.toubasandaga.sn\n"
+                                    "• Service client : +221 77 000 00 00\n"
+                                    "• Adresse : Touba Sandaga, Dakar\n\n"
+                                    "Équipe CCBM Shop"
+                                )
+                                config_thanks.send_text_message(rec.phone, info_message)
+                                _logger.info("Message d'information Touba Sandaga envoyé suite à un 'merci' pour le numéro %s", rec.phone)
+                        except Exception as e:
+                            _logger.exception("Erreur lors de l'envoi de la réponse 'merci' Touba Sandaga : %s", str(e))
+
                 except Exception as e:
-                    _logger.debug("Erreur lors de la vérification de l'action automatique : %s", str(e))
+                    _logger.debug("Erreur lors de la vérification des actions automatiques texte : %s", str(e))
 
         # Statuts (message status updates)
         for st in statuses:

@@ -279,7 +279,7 @@ class AccountMove(models.Model):
             
             # Footer
             details_message += "─" * 30 + "\n"
-            details_message += "Équipe CCBM Shop"
+            details_message += "Équipe CCTS"
             
             # Génère le PDF pour le bouton de téléchargement
             pdf_url = None
@@ -651,7 +651,7 @@ class AccountMove(models.Model):
                             message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
                         message += "\nCliquez sur le bouton ci-dessous pour télécharger votre facture."
                         message += "\n\nMerci de votre confiance !"
-                        message += "\n\nÉquipe CCBM Shop"
+                        message += "\n\nÉquipe CCTS"
                         
                         # Crée un bouton "Télécharger PDF" qui déclenchera l'action de téléchargement
                         buttons = [{
@@ -959,7 +959,7 @@ class AccountMove(models.Model):
             # Envoie un message indiquant qu'il n'y a pas de facture
             no_invoice_message = f"Bonjour {partner.name},\n\n"
             no_invoice_message += "Vous n'avez actuellement aucune facture impayée.\n\n"
-            no_invoice_message += "Équipe CCBM Shop"
+            no_invoice_message += "Équipe CCTS"
 
             try:
                 result = whatsapp_config.send_text_to_partner(

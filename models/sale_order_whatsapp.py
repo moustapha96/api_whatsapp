@@ -475,7 +475,7 @@ class SaleOrder(models.Model):
                 
                 # Prépare le message avec la facture
                 message += "\nMerci pour votre confiance."
-                message += "\n\nÉquipe CCBM Shop"
+                message += "\n\nÉquipe CCTS"
                 
                 # Si on a une facture avec PDF, envoie un message interactif avec bouton
                 if invoice_pdf_url and invoice:
@@ -755,7 +755,7 @@ class SaleOrder(models.Model):
             
             # Footer
             details_message += "─" * 30 + "\n"
-            details_message += "Équipe CCBM Shop"
+            details_message += "Équipe CCTS"
             
             # Génère le PDF pour le bouton de téléchargement
             pdf_url = None

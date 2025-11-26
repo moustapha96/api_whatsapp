@@ -90,7 +90,7 @@ if order:
                     download_message += f"{pdf_url}\n\n"
                     download_message += f"Montant : {order.amount_total:.0f} {order.currency_id.symbol if order.currency_id else 'F CFA'}\n\n"
                     download_message += "─" * 30 + "\n"
-                    download_message += "Équipe CCBM Shop"
+                    download_message += "Équipe CCTS"
                     
                     result = message.config_id.send_text_to_partner(
                         partner_id=order.partner_id.id,

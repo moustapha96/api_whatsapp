@@ -187,7 +187,7 @@ if invoice:
             wave_message += f"Cliquez sur le lien ci-dessous pour payer avec Wave :\n\n"
             wave_message += f"{invoice.payment_link_wave}\n\n"
             wave_message += "─" * 30 + "\n"
-            wave_message += "Équipe CCBM Shop"
+            wave_message += "Équipe CCTS"
             
             result = message.config_id.send_text_to_partner(
                 partner_id=invoice.partner_id.id,
@@ -278,7 +278,7 @@ if invoice:
             orange_message += f"Cliquez sur le lien ci-dessous pour payer avec Orange Money :\n\n"
             orange_message += f"{invoice.payment_link_orange_money}\n\n"
             orange_message += "─" * 30 + "\n"
-            orange_message += "Équipe CCBM Shop"
+            orange_message += "Équipe CCTS"
             
             result = message.config_id.send_text_to_partner(
                 partner_id=invoice.partner_id.id,

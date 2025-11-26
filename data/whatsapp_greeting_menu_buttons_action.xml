@@ -39,7 +39,7 @@ _logger.info("=== Fin Bouton Menu Mes factures ===")
         <field name="name">Menu - Autre demande</field>
         <field name="button_id">btn_menu_other</field>
         <field name="action_type">send_message</field>
-        <field name="message_to_send">Merci pour votre message 🙏\nExpliquez-nous votre demande et un membre de l'équipe CCBM Shop vous répondra.</field>
+        <field name="message_to_send">Merci pour votre message 🙏\nExpliquez-nous votre demande et un membre de l'Équipe CCTS vous répondra.</field>
         <field name="sequence">5</field>
         <field name="active">True</field>
         <field name="description">Réponse simple quand le client choisit 'Autre'.</field>

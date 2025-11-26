@@ -28,7 +28,7 @@ Montant à payer : {{2}} {{3}}
 Cliquez sur le bouton ci-dessous pour payer avec Wave.
 
 ──────────────────────────────
-Équipe CCBM Shop
+Équipe CCTS
 ```
 
 **Variables** :
@@ -56,7 +56,7 @@ Montant à payer : {{2}} {{3}}
 Cliquez sur le bouton ci-dessous pour payer avec Wave.
 
 ──────────────────────────────
-Équipe CCBM Shop
+Équipe CCTS
 
 Bouton 1 (URL) :
 - Type : URL
@@ -80,7 +80,7 @@ Montant à payer : {{2}} {{3}}
 Cliquez sur le bouton ci-dessous pour payer avec Orange Money.
 
 ──────────────────────────────
-Équipe CCBM Shop
+Équipe CCTS
 ```
 
 ### Bouton URL :

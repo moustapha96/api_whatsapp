@@ -63,7 +63,7 @@ else:
                     try:
                         end_msg = f"Bonjour {partner.name},\n\n"
                         end_msg += "Vous n'avez plus d'autres factures impayées.\n\n"
-                        end_msg += "Équipe CCBM Shop"
+                        end_msg += "Équipe CCTS"
                         whatsapp_config.send_text_to_partner(
                             partner_id=partner.id,
                             message_text=end_msg,

@@ -501,12 +501,12 @@ class WhatsappMessage(models.Model):
                             config_thanks = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
                             if config_thanks and rec.phone:
                                 info_message = (
-                                    "🙏 Merci pour votre message.\n\n"
-                                    "ℹ️ Informations Touba Sandaga :\n"
-                                    "• Site : portail.toubasandaga.sn\n"
-                                    "• Service client : +221 77 000 00 00\n"
+                                    "Merci pour votre message.\n\n"
+                                    "ℹInformations Touba Sandaga :\n"
+                                    "• Site : https://toubasandaga.sn\n"
+                                    "• Service client : (+221) 33 849 56 99\n"
                                     "• Adresse : Touba Sandaga, Dakar\n\n"
-                                    "Équipe CCBM Shop"
+                                    "Équipe CCTS"
                                 )
                                 config_thanks.send_text_message(rec.phone, info_message)
                                 _logger.info("Message d'information Touba Sandaga envoyé suite à un 'merci' pour le numéro %s", rec.phone)

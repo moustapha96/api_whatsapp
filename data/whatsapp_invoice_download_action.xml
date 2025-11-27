@@ -139,6 +139,9 @@ if invoice:
                     _logger.warning("web.base.url non configuré, impossible de générer l'URL de téléchargement")
                     pdf_url = None
                 else:
+                    # Si l'URL de base est en localhost (environnement Odoo), on remplace par le domaine public
+                    if 'localhost' in base_url or '127.0.0.1' in base_url:
+                        base_url = 'https://intranet.toubasandaga.sn'
                     pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
                     _logger.info("URL PDF générée: %s", pdf_url)
             except Exception as e:

@@ -34,7 +34,7 @@ _logger.info("=== Fin Bouton Menu Mes factures ===")
         <field name="description">Quand le client clique sur 'Mes factures', on déclenche l'action d'envoi des factures impayées (plus ancienne d'abord).</field>
     </record>
 
-    <!-- Bouton "Compte" : informations de compte + gestion mot de passe -->
+    <!-- Bouton "Compte" : informations de compte + bouton pour gérer le mot de passe -->
     <record id="action_btn_menu_account" model="whatsapp.button.action">
         <field name="name">Menu - Compte</field>
         <field name="button_id">btn_menu_account</field>
@@ -53,13 +53,13 @@ try:
         name = partner.name or "cher client"
         msg = f"👤 Compte Touba Sandaga - {name}\n\n"
 
-        # 1) Gestion du mot de passe web
+        # 1) Gestion du mot de passe web (information générale)
         if partner.password:
             msg += "Un mot de passe est déjà défini pour votre compte.\n"
-            msg += "Si vous souhaitez le modifier, envoyez MAINTENANT le nouveau mot de passe par message.\n\n"
+            msg += "Si vous souhaitez le modifier, utilisez le bouton ci-dessous.\n\n"
         else:
             msg += "Vous n'avez pas encore de mot de passe pour vous connecter au portail.\n"
-            msg += "Envoyez MAINTENANT le mot de passe que vous souhaitez utiliser.\n\n"
+            msg += "Touchez le bouton ci-dessous pour définir votre mot de passe.\n\n"
 
         # 2) Infos compte magasin & locaux (via rental.property)
         properties = env['rental.property'].sudo().search([
@@ -81,15 +81,25 @@ try:
 
         msg += "\nÉquipe CCTS"
 
-        # Marquer que l'on attend un mot de passe par WhatsApp
-        if hasattr(partner, 'waiting_password_whatsapp'):
-            partner.sudo().write({'waiting_password_whatsapp': True})
+        # Préparer un bouton pour (définir / modifier) le mot de passe
+        button_title = "Changer mot de passe" if partner.password else "Définir mot de passe"
+        buttons = [{
+            "type": "reply",
+            "reply": {
+                "id": "btn_account_set_password",
+                "title": button_title,
+            },
+        }]
 
-        # Envoyer le message au client
+        # Envoyer un message interactif (texte + bouton)
         config = message.config_id or env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
         if config:
-            config.send_text_to_partner(partner_id=partner.id, message_text=msg)
-            message.content = "Informations de compte envoyées et attente mot de passe."
+            config.send_interactive_message(
+                to_phone=message.phone,
+                body_text=msg,
+                buttons=buttons,
+            )
+            message.content = "Informations de compte envoyées avec bouton mot de passe."
         else:
             _logger.warning("Aucune configuration WhatsApp active trouvée pour le bouton 'Compte'")
             message.content = "Configuration WhatsApp introuvable pour l'envoi des informations de compte."
@@ -102,7 +112,52 @@ _logger.info("=== Fin Bouton Menu Compte ===")
         ]]></field>
         <field name="sequence">4</field>
         <field name="active">True</field>
-        <field name="description">Quand le client clique sur 'Compte', on lui envoie les infos de compte + on lui demande un mot de passe à enregistrer.</field>
+        <field name="description">Quand le client clique sur 'Compte', on lui envoie les infos de compte + un bouton pour gérer le mot de passe.</field>
+    </record>
+
+    <!-- Bouton "Définir / Changer mot de passe" : active le mode attente mot de passe -->
+    <record id="action_btn_account_set_password" model="whatsapp.button.action">
+        <field name="name">Compte - Définir mot de passe</field>
+        <field name="button_id">btn_account_set_password</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+_logger.info("=== Bouton Compte - Définir mot de passe ===")
+
+try:
+    partner = contact
+    if not partner or not partner.exists():
+        _logger.warning("Aucun partenaire associé au contact pour le bouton 'Définir mot de passe'")
+        message.content = "Aucun compte client trouvé pour ce numéro."
+    else:
+        # Activer le mode attente mot de passe
+        if hasattr(partner, 'waiting_password_whatsapp'):
+            partner.sudo().write({'waiting_password_whatsapp': True})
+
+        # Préparer le message d'instruction
+        instr = "Pour définir votre mot de passe,\n"
+        if partner.password:
+            instr = "Pour modifier votre mot de passe,\n"
+        instr += "envoyez MAINTENANT par message le mot de passe que vous souhaitez utiliser.\n\n"
+        instr += "⚠ Ne partagez jamais ce mot de passe avec une autre personne.\n\n"
+        instr += "Équipe CCTS"
+
+        config = message.config_id or env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if config:
+            config.send_text_to_partner(partner_id=partner.id, message_text=instr)
+            message.content = "Instructions pour définir le mot de passe envoyées."
+        else:
+            _logger.warning("Aucune configuration WhatsApp active trouvée pour le bouton 'Définir mot de passe'")
+            message.content = "Configuration WhatsApp introuvable pour l'envoi des instructions mot de passe."
+
+except Exception as e:
+    _logger.exception("Erreur dans le bouton 'Définir mot de passe' du menu: %s", str(e))
+    message.content = f"Erreur Définir mot de passe: {str(e)}"
+
+_logger.info("=== Fin Bouton Compte - Définir mot de passe ===")
+        ]]></field>
+        <field name="sequence">4</field>
+        <field name="active">True</field>
+        <field name="description">Quand le client clique sur 'Définir mot de passe', on active le mode attente mot de passe et on explique quoi faire.</field>
     </record>
 
     <!-- Bouton "Autre" : simple message d'information -->

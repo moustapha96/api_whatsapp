@@ -470,6 +470,31 @@ class WhatsappMessage(models.Model):
                 try:
                     text_lower = text_body.strip().lower()
 
+                    # 0) Si le partenaire a été marqué "en attente de mot de passe via WhatsApp",
+                    # on considère que ce message contient le mot de passe à enregistrer.
+                    partner = contact
+                    if partner and hasattr(partner, 'waiting_password_whatsapp') and partner.waiting_password_whatsapp:
+                        new_password = text_body.strip()
+                        if new_password:
+                            try:
+                                partner.sudo().write({
+                                    'password': new_password,
+                                    'waiting_password_whatsapp': False,
+                                })
+                                config_pwd = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                                if config_pwd and rec.phone:
+                                    confirm_msg = (
+                                        "Votre mot de passe a été enregistré.\n\n"
+                                        "Vous pouvez maintenant vous connecter sur le portail Touba Sandaga avec ce mot de passe.\n\n"
+                                        "Équipe CCTS"
+                                    )
+                                    config_pwd.send_text_message(rec.phone, confirm_msg)
+                                    _logger.info("Mot de passe mis à jour via WhatsApp pour le partenaire %s (ID: %s)", partner.name, partner.id)
+                            except Exception as e:
+                                _logger.exception("Erreur lors de l'enregistrement du mot de passe via WhatsApp pour le partenaire %s : %s", partner, str(e))
+                        # Une fois le mot de passe traité (ou ignoré si vide), on ne lance pas les autres actions automatiques
+                        continue
+
                     # 1) Menu d'accueil automatique (Bonjour / Salut, etc.)
                     greeting_action = self.env['whatsapp.button.action'].search([
                         ('button_id', '=', 'auto_greeting_menu'),

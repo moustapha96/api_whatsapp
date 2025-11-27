@@ -28,11 +28,12 @@ else:
         partner = message.contact_id
         name = partner.name if partner else "cher client"
 
-        body_text = f"👋 Bonjour {name},\n\n"
-        body_text += "Bienvenue sur le service WhatsApp CCBM Shop.\n\n"
+        body_text = f"Bonjour {name},\n\n"
+        body_text += "Bienvenue sur le service WhatsApp Touba Sandaga.\n\n"
         body_text += "Que souhaitez-vous faire ?\n\n"
-        body_text += "1️⃣ Voir mes factures impayées\n"
-        body_text += "2️⃣ Autre demande\n\n"
+        body_text += "1️  Voir mes factures impayées\n"
+        body_text += "2️  Gérer mon compte (mot de passe)\n"
+        body_text += "3️  Autre demande\n\n"
         body_text += "Touchez un bouton ci-dessous pour continuer."
 
         # Boutons :
@@ -44,6 +45,13 @@ else:
                 "reply": {
                     "id": "btn_menu_invoices",
                     "title": "Mes factures",
+                },
+            },
+            {
+                "type": "reply",
+                "reply": {
+                    "id": "btn_menu_account",
+                    "title": "Compte",
                 },
             },
             {

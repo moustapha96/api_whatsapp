@@ -34,6 +34,77 @@ _logger.info("=== Fin Bouton Menu Mes factures ===")
         <field name="description">Quand le client clique sur 'Mes factures', on déclenche l'action d'envoi des factures impayées (plus ancienne d'abord).</field>
     </record>
 
+    <!-- Bouton "Compte" : informations de compte + gestion mot de passe -->
+    <record id="action_btn_menu_account" model="whatsapp.button.action">
+        <field name="name">Menu - Compte</field>
+        <field name="button_id">btn_menu_account</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+_logger.info("=== Bouton Menu Compte ===")
+
+try:
+    partner = contact  # contact est un res.partner trouvé via le numéro
+
+    if not partner or not partner.exists():
+        _logger.warning("Aucun partenaire associé au contact pour le bouton 'Compte'")
+        message.content = "Aucun compte client trouvé pour ce numéro."
+    else:
+        # Construire le message d'information de compte
+        name = partner.name or "cher client"
+        msg = f"👤 Compte Touba Sandaga - {name}\n\n"
+
+        # 1) Gestion du mot de passe web
+        if partner.password:
+            msg += "Un mot de passe est déjà défini pour votre compte.\n"
+            msg += "Si vous souhaitez le modifier, envoyez MAINTENANT le nouveau mot de passe par message.\n\n"
+        else:
+            msg += "Vous n'avez pas encore de mot de passe pour vous connecter au portail.\n"
+            msg += "Envoyez MAINTENANT le mot de passe que vous souhaitez utiliser.\n\n"
+
+        # 2) Infos compte magasin & locaux (via rental.property)
+        properties = env['rental.property'].sudo().search([
+            '|',
+            ('current_tenant_id', '=', partner.id),
+            ('current_contract_id.tenant_id', '=', partner.id)
+        ])
+
+        if properties:
+            msg += "ℹ Informations compte magasin & locaux :\n"
+            msg += f"- Nombre de locaux : {len(properties)}\n"
+            # Limiter l'affichage à 3 locaux pour WhatsApp
+            for prop in properties[:3]:
+                msg += f"  • {prop.name}\n"
+            if len(properties) > 3:
+                msg += f"  (+ {len(properties) - 3} autre(s) local(aux))\n"
+        else:
+            msg += "Vous n'avez pas encore de local enregistré sur votre compte.\n"
+
+        msg += "\nÉquipe CCTS"
+
+        # Marquer que l'on attend un mot de passe par WhatsApp
+        if hasattr(partner, 'waiting_password_whatsapp'):
+            partner.sudo().write({'waiting_password_whatsapp': True})
+
+        # Envoyer le message au client
+        config = message.config_id or env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if config:
+            config.send_text_to_partner(partner_id=partner.id, message_text=msg)
+            message.content = "Informations de compte envoyées et attente mot de passe."
+        else:
+            _logger.warning("Aucune configuration WhatsApp active trouvée pour le bouton 'Compte'")
+            message.content = "Configuration WhatsApp introuvable pour l'envoi des informations de compte."
+
+except Exception as e:
+    _logger.exception("Erreur dans le bouton 'Compte' du menu: %s", str(e))
+    message.content = f"Erreur Compte: {str(e)}"
+
+_logger.info("=== Fin Bouton Menu Compte ===")
+        ]]></field>
+        <field name="sequence">4</field>
+        <field name="active">True</field>
+        <field name="description">Quand le client clique sur 'Compte', on lui envoie les infos de compte + on lui demande un mot de passe à enregistrer.</field>
+    </record>
+
     <!-- Bouton "Autre" : simple message d'information -->
     <record id="action_btn_menu_other" model="whatsapp.button.action">
         <field name="name">Menu - Autre demande</field>

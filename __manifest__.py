@@ -44,7 +44,7 @@
         "views/whatsapp_template_views.xml",
         "views/whatsapp_button_action_views.xml",
         "views/whatsapp_interactive_scenario_views.xml",
-        "views/sale_order_whatsapp_views.xml",  # Décommenter après vérification que le module sale est installé
+        # "views/sale_order_whatsapp_views.xml",  # Décommenter après vérification que le module sale est installé
     ],
     "installable": True,
     "application": True,

@@ -477,21 +477,38 @@ class WhatsappMessage(models.Model):
                         new_password = text_body.strip()
                         if new_password:
                             try:
+                                had_password = bool(partner.password)
                                 partner.sudo().write({
                                     'password': new_password,
                                     'waiting_password_whatsapp': False,
                                 })
                                 config_pwd = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
                                 if config_pwd and rec.phone:
-                                    confirm_msg = (
-                                        "Votre mot de passe a été enregistré.\n\n"
-                                        "Vous pouvez maintenant vous connecter sur le portail Touba Sandaga avec ce mot de passe.\n\n"
-                                        "Équipe CCTS"
-                                    )
+                                    if had_password:
+                                        confirm_msg = (
+                                            "Votre mot de passe a été modifié avec succès.\n\n"
+                                            "Vous pouvez maintenant vous connecter sur le portail Touba Sandaga avec ce nouveau mot de passe.\n\n"
+                                            "Équipe CCTS"
+                                        )
+                                    else:
+                                        confirm_msg = (
+                                            "Votre mot de passe a été enregistré.\n\n"
+                                            "Vous pouvez maintenant vous connecter sur le portail Touba Sandaga avec ce mot de passe.\n\n"
+                                            "Équipe CCTS"
+                                        )
                                     config_pwd.send_text_message(rec.phone, confirm_msg)
                                     _logger.info("Mot de passe mis à jour via WhatsApp pour le partenaire %s (ID: %s)", partner.name, partner.id)
                             except Exception as e:
                                 _logger.exception("Erreur lors de l'enregistrement du mot de passe via WhatsApp pour le partenaire %s : %s", partner, str(e))
+                        else:
+                            # Mot de passe vide : on envoie un message d'erreur au client
+                            config_pwd = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                            if config_pwd and rec.phone:
+                                error_msg = (
+                                    "Le mot de passe envoyé est vide.\n\n"
+                                    "Veuillez renvoyer un mot de passe valide (au moins quelques caractères)."
+                                )
+                                config_pwd.send_text_message(rec.phone, error_msg)
                         # Une fois le mot de passe traité (ou ignoré si vide), on ne lance pas les autres actions automatiques
                         continue
 

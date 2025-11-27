@@ -472,7 +472,21 @@ class WhatsappMessage(models.Model):
 
                     # 0) Si le partenaire a été marqué "en attente de mot de passe via WhatsApp",
                     # on considère que ce message contient le mot de passe à enregistrer.
+                    # 0) Gestion du mot de passe envoyé via WhatsApp
+                    # On récupère d'abord le partenaire lié au message, ou on le cherche par téléphone.
                     partner = contact
+                    if not partner and from_phone:
+                        try:
+                            phone_clean = self._normalize_phone(from_phone)
+                            if phone_clean:
+                                partner = self.env['res.partner'].search([
+                                    '|',
+                                    ('phone', 'ilike', phone_clean),
+                                    ('mobile', 'ilike', phone_clean),
+                                ], limit=1)
+                        except Exception as e:
+                            _logger.debug("Erreur lors de la recherche du partenaire pour mot de passe via téléphone %s : %s", from_phone, str(e))
+
                     if partner and hasattr(partner, 'waiting_password_whatsapp') and partner.waiting_password_whatsapp:
                         new_password = text_body.strip()
                         if new_password:

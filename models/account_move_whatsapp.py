@@ -1078,7 +1078,7 @@ class AccountMove(models.Model):
         details_message += "─" * 30 + "\n"
         details_message += f"Total : {self.amount_total:.0f} {self.currency_id.symbol}\n\n"
         
-        # Génère le PDF pour le bouton de téléchargement
+        # Génère le PDF pour le bouton de téléchargement et prépare les liens à renvoyer
         pdf_url = None
         pdf_link_text = ""
         try:
@@ -1117,13 +1117,20 @@ class AccountMove(models.Model):
                     
                     base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
                     if base_url:
+                        # Lien de téléchargement de la facture (PDF)
                         pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
-                        pdf_link_text = f"\n📄 Télécharger : {pdf_url}\n"
+                        # Lien du formulaire (vue formulaire de la facture dans Odoo)
+                        form_url = f"{base_url}/web#id={self.id}&model=account.move&view_type=form"
+                        pdf_link_text = ""
+                        if pdf_url:
+                            pdf_link_text += f"\n📄 Télécharger la facture : {pdf_url}\n"
+                        if form_url:
+                            pdf_link_text += f"📝 Ouvrir le formulaire de la facture : {form_url}\n"
         except Exception as e:
             _logger.warning("Erreur lors de la génération du PDF pour la facture %s: %s", self.name, str(e))
         
-        # Si include_links est True, ajoute le lien directement dans le message
-        if include_links and pdf_url:
+        # Si include_links est True, ajoute les liens directement dans le message
+        if include_links and pdf_link_text:
             details_message += pdf_link_text
         
         # Crée les boutons pour le message interactif
@@ -1181,9 +1188,8 @@ class AccountMove(models.Model):
             })
         
         # Envoie le message : interactif si boutons disponibles, texte sinon
-        # Si include_links est True et qu'on a un PDF, on ajoute le lien dans le texte aussi
-        if include_links and pdf_url:
-            # Ajoute le lien PDF dans le message texte
+        # Si include_links est True et qu'on a des liens, on les ajoute dans le texte
+        if include_links and pdf_link_text:
             details_message += pdf_link_text
         
         # Envoie le message interactif si on a des boutons

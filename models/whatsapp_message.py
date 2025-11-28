@@ -494,7 +494,7 @@ class WhatsappMessage(models.Model):
                                 had_password = bool(partner.password)
                                 partner.sudo().write({
                                     'password': new_password,
-                                    'waiting_password_whatsapp': False,
+                                    # 'waiting_password_whatsapp': False,
                                 })
                                 config_pwd = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
                                 if config_pwd and rec.phone:

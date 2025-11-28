@@ -4,6 +4,13 @@ from odoo import models, fields, api, _
 class ResPartner(models.Model):
     _inherit = 'res.partner'
     
+
+    waiting_password_whatsapp = fields.Boolean(
+        string="En attente de mot de passe via WhatsApp",
+        default=False,
+        help="Indique si le partenaire est en attente de mot de passe via WhatsApp"
+    )
+    
     @api.depends()
     def _compute_show_whatsapp_button(self):
         """Calcule si le bouton WhatsApp doit être affiché selon la configuration"""

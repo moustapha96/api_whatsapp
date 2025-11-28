@@ -19,14 +19,7 @@
                             attrs="{'invisible': ['|', '|', ('move_type', 'not in', ['out_invoice', 'out_refund']), '|', ('state', '!=', 'posted'), ('partner_id', '=', False), ('x_show_whatsapp_button', '=', False)]}"
                             help="Envoie les détails de la facture (date, nom, montant, produits) avec un bouton Payer par WhatsApp au partenaire. Le partenaire doit avoir un numéro de téléphone."
                             confirm="Êtes-vous sûr de vouloir envoyer les détails de cette facture par WhatsApp ?"/>
-                    <button name="action_send_whatsapp_invoice" 
-                            type="object"
-                            string="Envoyer PDF facture par WhatsApp"
-                            class="btn-secondary"
-                            icon="fa-file-pdf"
-                            attrs="{'invisible': ['|', '|', ('move_type', 'not in', ['out_invoice', 'out_refund']), '|', ('state', '!=', 'posted'), ('partner_id', '=', False), ('x_show_whatsapp_button', '=', False)]}"
-                            help="Envoie la facture en PDF par WhatsApp au partenaire. Le partenaire doit avoir un numéro de téléphone."
-                            confirm="Êtes-vous sûr de vouloir envoyer cette facture par WhatsApp ?"/>
+                   
                 </header>
             </xpath>
         </field>

@@ -179,8 +179,7 @@ if invoice:
         payment_link_wave = getattr(invoice, 'payment_link_wave', None)
     
     if payment_link_wave:
-        # Envoie le lien de paiement Wave dans un message texte
-        # WhatsApp rend automatiquement les URLs cliquables dans les messages texte
+        # Envoie un message interactif avec le lien Wave + un bouton pour télécharger la facture
         if message.config_id:
             wave_message = f"💳 Paiement Wave pour la facture {invoice.name}\n\n"
             wave_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
@@ -188,17 +187,27 @@ if invoice:
             wave_message += f"{invoice.payment_link_wave}\n\n"
             wave_message += "─" * 30 + "\n"
             wave_message += "Équipe CCTS"
-            
-            result = message.config_id.send_text_to_partner(
-                partner_id=invoice.partner_id.id,
-                message_text=wave_message
+
+            # Prépare un bouton pour télécharger la facture (PDF)
+            buttons = [{
+                "type": "reply",
+                "reply": {
+                    "id": f"btn_download_invoice_{invoice.id}",
+                    "title": "Télécharger facture",
+                },
+            }]
+
+            result = message.config_id.send_interactive_message(
+                to_phone=message.phone,
+                body_text=wave_message,
+                buttons=buttons,
             )
-            
+
             if result and isinstance(result, dict) and result.get('success'):
-                _logger.info("Lien de paiement Wave envoyé pour la facture %s", invoice.name)
-                message.content = f"Lien Wave facture {invoice.name} envoyé"
+                _logger.info("Lien Wave + bouton téléchargement envoyés pour la facture %s", invoice.name)
+                message.content = f"Lien Wave + bouton téléchargement facture {invoice.name} envoyés"
             else:
-                _logger.warning("Échec de l'envoi du lien Wave pour la facture %s", invoice.name)
+                _logger.warning("Échec de l'envoi du message Wave pour la facture %s", invoice.name)
                 message.content = f"Échec envoi lien Wave: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
         else:
             _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien Wave")
@@ -270,8 +279,7 @@ if invoice:
         payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
     
     if payment_link_orange:
-        # Envoie le lien de paiement Orange Money dans un message texte
-        # WhatsApp rend automatiquement les URLs cliquables dans les messages texte
+        # Envoie un message interactif avec le lien Orange Money + un bouton pour télécharger la facture
         if message.config_id:
             orange_message = f"💳 Paiement Orange Money pour la facture {invoice.name}\n\n"
             orange_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
@@ -279,17 +287,27 @@ if invoice:
             orange_message += f"{invoice.payment_link_orange_money}\n\n"
             orange_message += "─" * 30 + "\n"
             orange_message += "Équipe CCTS"
-            
-            result = message.config_id.send_text_to_partner(
-                partner_id=invoice.partner_id.id,
-                message_text=orange_message
+
+            # Prépare un bouton pour télécharger la facture (PDF)
+            buttons = [{
+                "type": "reply",
+                "reply": {
+                    "id": f"btn_download_invoice_{invoice.id}",
+                    "title": "Télécharger facture",
+                },
+            }]
+
+            result = message.config_id.send_interactive_message(
+                to_phone=message.phone,
+                body_text=orange_message,
+                buttons=buttons,
             )
-            
+
             if result and isinstance(result, dict) and result.get('success'):
-                _logger.info("Lien de paiement Orange Money envoyé pour la facture %s", invoice.name)
-                message.content = f"Lien Orange Money facture {invoice.name} envoyé"
+                _logger.info("Lien Orange Money + bouton téléchargement envoyés pour la facture %s", invoice.name)
+                message.content = f"Lien Orange Money + bouton téléchargement facture {invoice.name} envoyés"
             else:
-                _logger.warning("Échec de l'envoi du lien Orange Money pour la facture %s", invoice.name)
+                _logger.warning("Échec de l'envoi du message Orange Money pour la facture %s", invoice.name)
                 message.content = f"Échec envoi lien Orange Money: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
         else:
             _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien Orange Money")

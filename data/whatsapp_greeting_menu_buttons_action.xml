@@ -34,7 +34,7 @@ _logger.info("=== Fin Bouton Menu Mes factures ===")
         <field name="description">Quand le client clique sur 'Mes factures', on déclenche l'action d'envoi des factures impayées (plus ancienne d'abord).</field>
     </record>
 
-    <!-- Bouton "Compte" : informations de compte (sans gestion de mot de passe) -->
+    <!-- Bouton "Compte" : informations de compte + bouton pour gérer le mot de passe -->
     <record id="action_btn_menu_account" model="whatsapp.button.action">
         <field name="name">Menu - Compte</field>
         <field name="button_id">btn_menu_account</field>
@@ -53,7 +53,15 @@ try:
         name = partner.name or "cher client"
         msg = f"👤 Compte Touba Sandaga - {name}\n\n"
 
-        # Infos compte magasin & locaux (via rental.property)
+        # 1) Gestion du mot de passe web (information générale)
+        if partner.password:
+            msg += "Un mot de passe est déjà défini pour votre compte.\n"
+            msg += "Si vous souhaitez le modifier, utilisez le bouton ci-dessous.\n\n"
+        else:
+            msg += "Vous n'avez pas encore de mot de passe pour vous connecter au portail.\n"
+            msg += "Touchez le bouton ci-dessous pour définir votre mot de passe.\n\n"
+
+        # 2) Infos compte magasin & locaux (via rental.property)
         properties = env['rental.property'].sudo().search([
             '|',
             ('current_tenant_id', '=', partner.id),
@@ -73,14 +81,25 @@ try:
 
         msg += "\nÉquipe CCTS"
 
-        # Envoyer un message simple avec les informations de compte (sans bouton mot de passe)
+        # Préparer un bouton pour (définir / modifier) le mot de passe
+        button_title = "Changer mot de passe" if partner.password else "Définir mot de passe"
+        buttons = [{
+            "type": "reply",
+            "reply": {
+                "id": "btn_account_set_password",
+                "title": button_title,
+            },
+        }]
+
+        # Envoyer un message interactif (texte + bouton)
         config = message.config_id or env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
         if config:
-            config.send_text_to_partner(
-                partner_id=partner.id,
-                message_text=msg,
+            config.send_interactive_message(
+                to_phone=message.phone,
+                body_text=msg,
+                buttons=buttons,
             )
-            message.content = "Informations de compte envoyées."
+            message.content = "Informations de compte envoyées avec bouton mot de passe."
         else:
             _logger.warning("Aucune configuration WhatsApp active trouvée pour le bouton 'Compte'")
             message.content = "Configuration WhatsApp introuvable pour l'envoi des informations de compte."

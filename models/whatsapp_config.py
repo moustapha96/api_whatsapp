@@ -57,6 +57,50 @@ class WhatsappConfig(models.Model):
     )
 
     is_active = fields.Boolean(string="Actif", default=True)
+    
+    # Paramètres d'envoi automatique
+    auto_send_order_creation = fields.Boolean(
+        string="Envoyer automatiquement les commandes après création",
+        default=True,
+        help="Si activé, un message WhatsApp sera envoyé automatiquement lors de la création d'une commande"
+    )
+    
+    auto_send_unpaid_invoices = fields.Boolean(
+        string="Envoyer automatiquement les factures impayées",
+        default=False,
+        help="Si activé, un message WhatsApp sera envoyé automatiquement pour les factures impayées après un certain nombre de jours"
+    )
+    
+    unpaid_invoice_days = fields.Integer(
+        string="Nombre de jours avant envoi facture impayée",
+        default=7,
+        help="Nombre de jours après l'échéance avant d'envoyer un rappel pour les factures impayées",
+        required=True
+    )
+    
+    # Paramètres d'affichage des boutons dans les vues
+    show_button_in_invoice = fields.Boolean(
+        string="Afficher le bouton WhatsApp dans les factures",
+        default=True,
+        help="Si activé, le bouton 'Envoyer facture par WhatsApp' sera visible dans la vue formulaire des factures"
+    )
+    
+    show_button_in_order = fields.Boolean(
+        string="Afficher le bouton WhatsApp dans les commandes",
+        default=True,
+        help="Si activé, le bouton WhatsApp sera visible dans la vue formulaire des commandes"
+    )
+    
+    show_button_in_partner = fields.Boolean(
+        string="Afficher le bouton WhatsApp dans les partenaires",
+        default=True,
+        help="Si activé, le bouton 'Envoyer WhatsApp' sera visible dans la vue formulaire des partenaires"
+    )
+    
+    @api.model
+    def get_active_config(self):
+        """Retourne la configuration WhatsApp active"""
+        return self.search([('is_active', '=', True)], limit=1)
 
     # ---------------------------------------------------------------------
     # Helpers
@@ -155,12 +199,6 @@ class WhatsappConfig(models.Model):
         
         return result
 
-    def get_active_config(self):
-        config = self.search([("is_active", "=", True)], limit=1)
-        if not config:
-            raise ValidationError(_("Aucune configuration WhatsApp active trouvée."))
-        return config
-
     def _get_headers(self):
         self.ensure_one()
         if not self.access_token:
@@ -184,7 +222,7 @@ class WhatsappConfig(models.Model):
         try:
             response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
             _logger.info("Réponse WhatsApp : %s - %s", response.status_code, response.text)
-            
+
             # Parse la réponse
             try:
                 data = response.json()
@@ -219,10 +257,16 @@ class WhatsappConfig(models.Model):
                 _logger.error("Erreur API WhatsApp : %s - Réponse complète: %s", full_error, response.text)
                 return None, None, response.text, full_error
             
-            # Extrait le message_id
+            # Extrait le message_id et les contacts selon le format de réponse Meta
+            # Format attendu : {"messaging_product": "whatsapp", "contacts": [...], "messages": [{"id": "..."}]}
             message_id = None
+            contacts_data = []
+            
             try:
-                message_id = data.get("messages", [{}])[0].get("id")
+                messages = data.get("messages", [])
+                if messages:
+                    message_id = messages[0].get("id")
+                contacts_data = data.get("contacts", [])
             except Exception:
                 pass
 
@@ -264,7 +308,16 @@ class WhatsappConfig(models.Model):
         
         return phone
 
-    def send_text_message(self, to_phone, body_text, preview_url=False):
+    def send_text_message(self, to_phone, body_text, preview_url=False, recipient_type="individual"):
+        """
+        Envoie un message texte simple.
+        
+        Args:
+            to_phone: Numéro de téléphone destinataire (format international)
+            body_text: Texte du message
+            preview_url: Active la prévisualisation des liens (défaut: False)
+            recipient_type: Type de destinataire ("individual" par défaut selon la doc Meta)
+        """
         if not to_phone:
             raise ValidationError(_("Numéro de téléphone destinataire manquant."))
         
@@ -273,6 +326,7 @@ class WhatsappConfig(models.Model):
         
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": recipient_type,
             "to": to_phone,
             "type": "text",
             "text": {
@@ -320,7 +374,7 @@ class WhatsappConfig(models.Model):
         
         return data if data else result
 
-    def send_interactive_message(self, to_phone, body_text, buttons=None):
+    def send_interactive_message(self, to_phone, body_text, buttons=None, recipient_type="individual"):
         """
         Envoie un message avec boutons interactifs.
         
@@ -333,15 +387,30 @@ class WhatsappConfig(models.Model):
                     {"type": "reply", "reply": {"id": "btn_yes", "title": "Oui"}},
                     {"type": "reply", "reply": {"id": "btn_no", "title": "Non"}},
                 ]
+            recipient_type: Type de destinataire ("individual" par défaut selon la doc Meta)
+        
+        Note: WhatsApp exige entre 1 et 3 boutons. Si buttons est vide ou None, 
+        cette méthode lèvera une ValidationError. Utilisez send_text_message() à la place.
         """
         if not to_phone:
             raise ValidationError(_("Numéro de téléphone destinataire manquant."))
         
+        # Valide et nettoie le numéro
+        to_phone = self._validate_phone_number(to_phone)
+        
         if not buttons:
             buttons = []
         
+        # WhatsApp exige entre 1 et 3 boutons pour les messages interactifs
+        if len(buttons) == 0:
+            raise ValidationError(_("Un message interactif doit contenir entre 1 et 3 boutons. Utilisez send_text_message() pour envoyer un message sans boutons."))
+        
+        if len(buttons) > 3:
+            raise ValidationError(_("Un message interactif ne peut contenir que 3 boutons maximum."))
+        
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": recipient_type,
             "to": to_phone,
             "type": "interactive",
             "interactive": {
@@ -408,12 +477,14 @@ class WhatsappConfig(models.Model):
 
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": "individual",
             "to": to_phone,
             "type": "image",
             "image": image_payload,
         }
-        data, message_id, raw_response = self._send_whatsapp_request(payload)
+        data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
+        status = "error" if error_message else "sent"
         self.env["whatsapp.message"].create({
             "config_id": self.id,
             "direction": "out",
@@ -421,12 +492,17 @@ class WhatsappConfig(models.Model):
             "phone": to_phone,
             "content": caption or "",
             "message_type": "image",
-            "status": "sent",
+            "status": status,
+            "wa_status": error_message or "sent",
             "media_id": image_id,
             "media_url": image_link,
             "raw_payload": json.dumps(payload),
-            "raw_response": raw_response,
+            "raw_response": raw_response or "",
         })
+        
+        if error_message:
+            raise ValidationError(_("Erreur lors de l'envoi de l'image : %s") % error_message)
+        
         return data
 
     def send_document_message(self, to_phone, document_id=None, document_link=None,
@@ -448,12 +524,14 @@ class WhatsappConfig(models.Model):
 
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": "individual",
             "to": to_phone,
             "type": "document",
             "document": doc_payload,
         }
-        data, message_id, raw_response = self._send_whatsapp_request(payload)
+        data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
+        status = "error" if error_message else "sent"
         self.env["whatsapp.message"].create({
             "config_id": self.id,
             "direction": "out",
@@ -461,12 +539,17 @@ class WhatsappConfig(models.Model):
             "phone": to_phone,
             "content": caption or "",
             "message_type": "document",
-            "status": "sent",
+            "status": status,
+            "wa_status": error_message or "sent",
             "media_id": document_id,
             "media_url": document_link,
             "raw_payload": json.dumps(payload),
-            "raw_response": raw_response,
+            "raw_response": raw_response or "",
         })
+        
+        if error_message:
+            raise ValidationError(_("Erreur lors de l'envoi du document : %s") % error_message)
+        
         return data
 
     def send_audio_message(self, to_phone, audio_id=None, audio_link=None):
@@ -483,24 +566,31 @@ class WhatsappConfig(models.Model):
 
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": "individual",
             "to": to_phone,
             "type": "audio",
             "audio": audio_payload,
         }
-        data, message_id, raw_response = self._send_whatsapp_request(payload)
+        data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
+        status = "error" if error_message else "sent"
         self.env["whatsapp.message"].create({
             "config_id": self.id,
             "direction": "out",
             "wa_message_id": message_id,
             "phone": to_phone,
             "message_type": "audio",
-            "status": "sent",
+            "status": status,
+            "wa_status": error_message or "sent",
             "media_id": audio_id,
             "media_url": audio_link,
             "raw_payload": json.dumps(payload),
-            "raw_response": raw_response,
+            "raw_response": raw_response or "",
         })
+        
+        if error_message:
+            raise ValidationError(_("Erreur lors de l'envoi de l'audio : %s") % error_message)
+        
         return data
 
     def send_video_message(self, to_phone, video_id=None, video_link=None, caption=None):
@@ -519,12 +609,14 @@ class WhatsappConfig(models.Model):
 
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": "individual",
             "to": to_phone,
             "type": "video",
             "video": video_payload,
         }
-        data, message_id, raw_response = self._send_whatsapp_request(payload)
+        data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
+        status = "error" if error_message else "sent"
         self.env["whatsapp.message"].create({
             "config_id": self.id,
             "direction": "out",
@@ -532,12 +624,17 @@ class WhatsappConfig(models.Model):
             "phone": to_phone,
             "content": caption or "",
             "message_type": "video",
-            "status": "sent",
+            "status": status,
+            "wa_status": error_message or "sent",
             "media_id": video_id,
             "media_url": video_link,
             "raw_payload": json.dumps(payload),
-            "raw_response": raw_response,
+            "raw_response": raw_response or "",
         })
+        
+        if error_message:
+            raise ValidationError(_("Erreur lors de l'envoi de la vidéo : %s") % error_message)
+        
         return data
 
     def send_location_message(self, to_phone, latitude, longitude,
@@ -558,12 +655,14 @@ class WhatsappConfig(models.Model):
 
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": "individual",
             "to": to_phone,
             "type": "location",
             "location": loc_payload,
         }
-        data, message_id, raw_response = self._send_whatsapp_request(payload)
+        data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
+        status = "error" if error_message else "sent"
         self.env["whatsapp.message"].create({
             "config_id": self.id,
             "direction": "out",
@@ -571,10 +670,15 @@ class WhatsappConfig(models.Model):
             "phone": to_phone,
             "content": f"{latitude}, {longitude}",
             "message_type": "location",
-            "status": "sent",
+            "status": status,
+            "wa_status": error_message or "sent",
             "raw_payload": json.dumps(payload),
-            "raw_response": raw_response,
+            "raw_response": raw_response or "",
         })
+        
+        if error_message:
+            raise ValidationError(_("Erreur lors de l'envoi de la localisation : %s") % error_message)
+        
         return data
 
     def send_template_message(
@@ -583,31 +687,44 @@ class WhatsappConfig(models.Model):
         template_name,
         language_code="fr",
         components=None,
+        recipient_type="individual",
     ):
         """
-        Envoie un message template WhatsApp.
+        Envoie un message template WhatsApp selon la documentation Meta.
         
         IMPORTANT : Le template doit être créé et approuvé dans Meta Business Suite avant utilisation.
         
         Args:
-            to_phone: Numéro de téléphone destinataire (format international)
-            template_name: Nom du template tel que défini dans Meta (ex: "simple_text_message")
-            language_code: Code langue ('fr', 'fr_FR', 'en', etc.)
-            components: Liste de composants pour les paramètres (body, header, buttons)
+            to_phone: Numéro de téléphone destinataire (format international, ex: +33612345678)
+            template_name: Nom du template tel que défini dans Meta (ex: "hello_world", "order_confirmation")
+            language_code: Code langue ('fr', 'fr_FR', 'en_US', etc.)
+            components: Liste de composants pour les paramètres (body, header, buttons, footer)
+            recipient_type: Type de destinataire ("individual" par défaut)
         
-        Exemples de components:
+        Exemples de components selon la documentation Meta:
         
         # Template simple (sans paramètres)
         components = None
         
-        # Template avec paramètres dans le body
+        # Template avec paramètres POSITIONNELS dans le body ({{1}}, {{2}})
         components = [
             {
                 "type": "body",
                 "parameters": [
-                    {"type": "text", "text": "Jean Dupont"},
-                    {"type": "text", "text": "CMD-2024-001"},
-                    {"type": "text", "text": "150.00"}
+                    {"type": "text", "text": "Jean Dupont"},      # {{1}}
+                    {"type": "text", "text": "CMD-2024-001"},     # {{2}}
+                    {"type": "text", "text": "150.00"}            # {{3}}
+                ]
+            }
+        ]
+        
+        # Template avec paramètres NOMmÉS dans le body (parameter_name)
+        components = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "parameter_name": "first_name", "text": "Jean"},
+                    {"type": "text", "parameter_name": "order_number", "text": "CMD-2024-001"}
                 ]
             }
         ]
@@ -634,7 +751,7 @@ class WhatsappConfig(models.Model):
             }
         ]
         
-        # Template avec header document
+        # Template avec header document (PDF)
         components = [
             {
                 "type": "header",
@@ -655,34 +772,61 @@ class WhatsappConfig(models.Model):
             }
         ]
         
-        # Template avec boutons (les boutons sont définis dans le template Meta)
+        # Template avec bouton URL dynamique
         components = [
             {
-                "type": "body",
-                "parameters": [
+              "type": "body",
+              "parameters": [
                     {"type": "text", "text": "Jean Dupont"}
+                ]
+            },
+            {
+                "type": "button",
+                "sub_type": "url",
+                "index": "0",
+                "parameters": [
+                    {
+                        "type": "text",
+                        "text": "https://example.com/download"
+                    }
                 ]
             }
         ]
+        
+        Format de réponse attendu de Meta:
+        {
+            "messaging_product": "whatsapp",
+            "contacts": [{"input": "48XXXXXXXXX", "wa_id": "48XXXXXXXXX"}],
+            "messages": [{"id": "wamid.gBGGSFcCNEOPAgkO_KJ55r4w_ww"}]
+        }
         """
         if not to_phone:
             raise ValidationError(_("Numéro de téléphone destinataire manquant."))
         if not template_name:
             raise ValidationError(_("Nom du template WhatsApp manquant."))
 
+        # Valide et nettoie le numéro
+        to_phone = self._validate_phone_number(to_phone)
+
+        # Construit le template selon la documentation Meta
         template = {
             "name": template_name,
             "language": {"code": language_code},
         }
+        
+        # Ajoute les composants si fournis
         if components:
             template["components"] = components
 
+        # Construit le payload selon la documentation Meta
         payload = {
             "messaging_product": "whatsapp",
+            "recipient_type": recipient_type,
             "to": to_phone,
             "type": "template",
             "template": template,
         }
+        
         data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
         # Détermine le statut
@@ -692,6 +836,13 @@ class WhatsappConfig(models.Model):
             status = "sent"
         else:
             status = "error"
+
+        # Extrait les informations de contact de la réponse si disponibles
+        contact_info = None
+        if data and isinstance(data, dict):
+            contacts = data.get("contacts", [])
+            if contacts:
+                contact_info = contacts[0]
 
         message_record = self.env["whatsapp.message"].create({
             "config_id": self.id,
@@ -714,6 +865,7 @@ class WhatsappConfig(models.Model):
             "success": not bool(error_message),
             "message_id": message_id,
             "message_record": message_record,
+            "contacts": contact_info,
             "error": error_message
         }
         

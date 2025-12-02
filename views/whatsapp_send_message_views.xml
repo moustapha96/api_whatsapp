@@ -157,21 +157,31 @@
                                            widget="many2one"
                                            attrs="{'required': [('use_custom_message', '=', False)]}"
                                            placeholder="Sélectionner un template..."/>
+                                    <!-- Champ caché pour déclencher la mise à jour JavaScript -->
+                                    <field name="template_structure_json" invisible="1" column_invisible="1" readonly="1"/>
                                     <field name="language_code" 
                                            placeholder="fr"
                                            help="Code langue du template (ex: fr, en, es)"/>
                                 </group>
                             </group>
                             <group col="1" string="Paramètres du template">
-                                <div class="alert alert-info" role="alert">
+                                <div class="alert alert-info" role="alert" attrs="{'invisible': [('template_has_parameters', '=', True)]}">
                                     <p><strong>Template simple (sans paramètres) :</strong></p>
-                                    <p>Pour un template simple comme "simple_text_message", laissez le champ "Paramètres" <strong>VIDE</strong>.</p>
+                                    <p>Ce template ne nécessite pas de paramètres. Vous pouvez l'envoyer directement.</p>
                                 </div>
+                                
+                                <!-- Champ JSON pour saisir les paramètres -->
                                 <field name="template_params" 
                                        placeholder='Exemple: [{"type": "body", "parameters": [{"type": "text", "text": "Valeur 1"}, {"type": "text", "text": "Valeur 2"}]}]'
                                        widget="text"
                                        nolabel="1"
+                                       attrs="{'invisible': [('template_has_parameters', '=', False)]}"
                                        options="{'resizable': true}"/>
+                                
+                                <!-- Champs cachés pour stocker les valeurs et la structure -->
+                                <field name="parameter_values" invisible="1" column_invisible="1"/>
+                                <field name="template_structure_json" invisible="1" column_invisible="1"/>
+                                <field name="template_has_parameters" invisible="1" column_invisible="1"/>
                             </group>
                         </page>
                         <page string="Message personnalisé" name="custom" attrs="{'invisible': [('use_custom_message', '=', False)]}">
@@ -199,29 +209,29 @@
                                 <p>Les paramètres doivent être au format <strong>JSON</strong>.</p>
                                 <p><strong>Exemple pour un template avec 2 paramètres :</strong></p>
                                 <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">[
-  {
-    "type": "body",
-    "parameters": [
-      {"type": "text", "text": "Valeur paramètre 1"},
-      {"type": "text", "text": "Valeur paramètre 2"}
-    ]
-  }
-]</pre>
-                                <p><strong>Exemple pour un template avec header image :</strong></p>
-                                <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">[
-  {
-    "type": "header",
-    "parameters": [
-      {"type": "image", "image": {"link": "https://example.com/image.jpg"}}
-    ]
-  },
-  {
-    "type": "body",
-    "parameters": [
-      {"type": "text", "text": "Valeur paramètre 1"}
-    ]
-  }
-]</pre>
+                                    {
+                                        "type": "body",
+                                        "parameters": [
+                                        {"type": "text", "text": "Valeur paramètre 1"},
+                                        {"type": "text", "text": "Valeur paramètre 2"}
+                                        ]
+                                    }
+                                    ]</pre>
+                                                                    <p><strong>Exemple pour un template avec header image :</strong></p>
+                                                                    <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">[
+                                    {
+                                        "type": "header",
+                                        "parameters": [
+                                        {"type": "image", "image": {"link": "https://example.com/image.jpg"}}
+                                        ]
+                                    },
+                                    {
+                                        "type": "body",
+                                        "parameters": [
+                                        {"type": "text", "text": "Valeur paramètre 1"}
+                                        ]
+                                    }
+                                    ]</pre>
                             </div>
                             <div class="alert alert-warning" role="alert">
                                 <h4><i class="fa fa-lightbulb-o"/> Message personnalisé</h4>
@@ -238,6 +248,7 @@
             </form>
         </field>
     </record>
+    
 
     <!-- Action pour envoyer un message avec boutons -->
     <record id="action_send_whatsapp_interactive" model="ir.actions.act_window">

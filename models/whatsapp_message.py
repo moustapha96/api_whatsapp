@@ -1,5 +1,6 @@
 # whatsapp_business_api/models/whatsapp_message.py
 from odoo import models, fields, api, _
+from odoo.exceptions import ValidationError
 import logging
 import json
 
@@ -94,6 +95,38 @@ class WhatsappMessage(models.Model):
         compute="_compute_error_help",
         help="Message d'aide pour résoudre les problèmes d'envoi"
     )
+    
+    def action_reply_message(self):
+        """
+        Ouvre le wizard pour répondre à ce message.
+        """
+        self.ensure_one()
+        
+        if self.direction != 'in':
+            raise ValidationError(_("Vous ne pouvez répondre qu'aux messages entrants."))
+        
+        if not self.phone:
+            raise ValidationError(_("Aucun numéro de téléphone associé à ce message."))
+        
+        # Récupère la configuration active
+        config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not config:
+            raise ValidationError(_("Aucune configuration WhatsApp active trouvée."))
+        
+        # Ouvre le wizard d'envoi de message avec les valeurs pré-remplies
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Répondre au message'),
+            'res_model': 'whatsapp.send.message',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_config_id': config.id,
+                'default_phone': self.phone,
+                'default_contact_id': self.contact_id.id if self.contact_id else False,
+                'default_message': '',  # L'utilisateur peut saisir sa réponse
+            }
+        }
     
     @api.depends('status', 'wa_status', 'raw_response', 'message_type', 'phone')
     def _compute_error_help(self):
@@ -336,9 +369,43 @@ class WhatsappMessage(models.Model):
                 if button_id:
                     text_body = f"[Bouton: {button_id}] {text_body}"
 
+            elif mtype == "template":
+                # Message template reçu (réponse à un template)
+                template_data = msg.get("template", {}) or {}
+                template_name = template_data.get("name")
+                template_lang = template_data.get("language")
+                template_components = template_data.get("components", [])
+                
+                message_type = "template"
+                template_name = template_name or "unknown_template"
+                template_lang = template_lang or {}
+                text_body = f"Template: {template_name}"
+                
+                # Extrait le texte du body si disponible
+                for comp in template_components:
+                    if comp.get("type") == "body":
+                        params = comp.get("parameters", [])
+                        if params:
+                            text_body = " ".join([p.get("text", "") for p in params if p.get("type") == "text"])
+
+            elif mtype == "reaction":
+                # Réaction à un message
+                reaction = msg.get("reaction", {}) or {}
+                emoji = reaction.get("emoji", "")
+                message_id = reaction.get("message_id")
+                message_type = "reaction"
+                text_body = f"Réaction: {emoji}" if emoji else "Réaction"
+
+            elif mtype == "unsupported":
+                # Type de message non supporté
+                message_type = "unsupported"
+                text_body = "Message non supporté"
+                _logger.warning("Message non supporté reçu : %s", json.dumps(msg))
+
             else:
                 message_type = "unknown"
                 text_body = str(msg)
+                _logger.warning("Type de message inconnu reçu : %s - Contenu: %s", mtype, json.dumps(msg))
 
             # Trouve ou crée le contact
             contact = self._find_or_create_contact(
@@ -353,6 +420,18 @@ class WhatsappMessage(models.Model):
                 contacts_map.get(from_phone, {}).get('name')
             )
             
+            # Extrait les informations de template si c'est un message template
+            template_name_val = None
+            template_lang_val = None
+            template_components_val = None
+            if mtype == "template":
+                template_data = msg.get("template", {}) or {}
+                template_name_val = template_data.get("name")
+                template_lang_val = template_data.get("language")
+                if isinstance(template_lang_val, dict):
+                    template_lang_val = template_lang_val.get("code")
+                template_components_val = json.dumps(template_data.get("components", []))
+
             rec = self.create({
                 "direction": "in",
                 "config_id": config.id if config else False,
@@ -369,6 +448,9 @@ class WhatsappMessage(models.Model):
                 "media_url": media_url,
                 "media_mime_type": media_mime,
                 "caption": caption,
+                "template_name": template_name_val,
+                "template_language": template_lang_val,
+                "template_components": template_components_val,
                 "raw_payload": data_str,
             })
             created_records |= rec
@@ -382,6 +464,113 @@ class WhatsappMessage(models.Model):
                     rec._process_button_action(interactive)
                 except Exception as e:
                     _logger.exception("Erreur lors du traitement de l'action de bouton pour le message %s", rec.id)
+            
+            # Si c'est un message texte, vérifie s'il faut déclencher des actions automatiques
+            if mtype == "text" and text_body:
+                try:
+                    text_lower = text_body.strip().lower()
+
+                    # 0) Si le partenaire a été marqué "en attente de mot de passe via WhatsApp",
+                    # on considère que ce message contient le mot de passe à enregistrer.
+                    # 0) Gestion du mot de passe envoyé via WhatsApp
+                    # On récupère d'abord le partenaire lié au message, ou on le cherche par téléphone.
+                    partner = contact
+                    if not partner and from_phone:
+                        try:
+                            phone_clean = self._normalize_phone(from_phone)
+                            if phone_clean:
+                                partner = self.env['res.partner'].search([
+                                    '|',
+                                    ('phone', 'ilike', phone_clean),
+                                    ('mobile', 'ilike', phone_clean),
+                                ], limit=1)
+                        except Exception as e:
+                            _logger.debug("Erreur lors de la recherche du partenaire pour mot de passe via téléphone %s : %s", from_phone, str(e))
+
+                    if partner and hasattr(partner, 'waiting_password_whatsapp') and partner.waiting_password_whatsapp:
+                        new_password = text_body.strip()
+                        if new_password:
+                            try:
+                                had_password = bool(partner.password)
+                                partner.sudo().write({
+                                    'password': new_password,
+                                    # 'waiting_password_whatsapp': False,
+                                })
+                                config_pwd = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                                if config_pwd and rec.phone:
+                                    if had_password:
+                                        confirm_msg = (
+                                            "Votre mot de passe a été modifié avec succès.\n\n"
+                                            "Vous pouvez maintenant vous connecter sur le portail Touba Sandaga avec ce nouveau mot de passe.\n\n"
+                                            "Équipe CCTS"
+                                        )
+                                    else:
+                                        confirm_msg = (
+                                            "Votre mot de passe a été enregistré.\n\n"
+                                            "Vous pouvez maintenant vous connecter sur le portail Touba Sandaga avec ce mot de passe.\n\n"
+                                            "Équipe CCTS"
+                                        )
+                                    config_pwd.send_text_message(rec.phone, confirm_msg)
+                                    _logger.info("Mot de passe mis à jour via WhatsApp pour le partenaire %s (ID: %s)", partner.name, partner.id)
+                            except Exception as e:
+                                _logger.exception("Erreur lors de l'enregistrement du mot de passe via WhatsApp pour le partenaire %s : %s", partner, str(e))
+                        else:
+                            # Mot de passe vide : on envoie un message d'erreur au client
+                            config_pwd = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                            if config_pwd and rec.phone:
+                                error_msg = (
+                                    "Le mot de passe envoyé est vide.\n\n"
+                                    "Veuillez renvoyer un mot de passe valide (au moins quelques caractères)."
+                                )
+                                config_pwd.send_text_message(rec.phone, error_msg)
+                        # Une fois le mot de passe traité (ou ignoré si vide), on ne lance pas les autres actions automatiques
+                        continue
+
+                    # 1) Menu d'accueil automatique (Bonjour / Salut, etc.)
+                    greeting_action = self.env['whatsapp.button.action'].search([
+                        ('button_id', '=', 'auto_greeting_menu'),
+                        ('active', '=', True)
+                    ], limit=1)
+                    if greeting_action:
+                        try:
+                            greeting_action.execute_action(rec, contact)
+                        except Exception as e:
+                            _logger.exception("Erreur lors de l'exécution de l'action de menu d'accueil : %s", str(e))
+
+                    # 2) Envoi automatique des factures (mots-clés liés aux factures)
+                    auto_action = self.env['whatsapp.button.action'].search([
+                        ('button_id', '=', 'auto_send_all_invoices'),
+                        ('active', '=', True)
+                    ], limit=1)
+                    
+                    if auto_action:
+                        _logger.info("Action automatique d'envoi de factures trouvée, vérification des mots-clés...")
+                        try:
+                            auto_action.execute_action(rec, contact)
+                        except Exception as e:
+                            _logger.exception("Erreur lors de l'exécution de l'action automatique d'envoi de factures : %s", str(e))
+
+                    # 3) Réponse automatique aux messages de remerciement ("merci", "thanks", etc.)
+                    thanks_keywords = ["merci", "thanks", "thank you", "thx"]
+                    if any(k in text_lower for k in thanks_keywords):
+                        try:
+                            config_thanks = rec.config_id or self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+                            if config_thanks and rec.phone:
+                                info_message = (
+                                    "Merci pour votre message.\n\n"
+                                    "ℹInformations Touba Sandaga :\n"
+                                    "• Site : https://toubasandaga.sn\n"
+                                    "• Service client : (+221) 33 849 56 99\n"
+                                    "• Adresse : Touba Sandaga, Dakar\n\n"
+                                    "Équipe CCTS"
+                                )
+                                config_thanks.send_text_message(rec.phone, info_message)
+                                _logger.info("Message d'information Touba Sandaga envoyé suite à un 'merci' pour le numéro %s", rec.phone)
+                        except Exception as e:
+                            _logger.exception("Erreur lors de l'envoi de la réponse 'merci' Touba Sandaga : %s", str(e))
+
+                except Exception as e:
+                    _logger.debug("Erreur lors de la vérification des actions automatiques texte : %s", str(e))
 
         # Statuts (message status updates)
         for st in statuses:
@@ -481,14 +670,34 @@ class WhatsappMessage(models.Model):
                 if contact:
                     self.contact_id = contact.id
             
-            # Cherche les actions associées à ce bouton
+            # Cherche d'abord dans les scénarios interactifs
+            scenarios = self.env['whatsapp.interactive.scenario'].search([
+                ('active', '=', True)
+            ])
+            
+            scenario_found = None
+            for scenario in scenarios:
+                if button_id in [scenario.button_1_id, scenario.button_2_id, scenario.button_3_id]:
+                    scenario_found = scenario
+                    break
+            
+            if scenario_found:
+                _logger.info("Scénario interactif trouvé pour le bouton %s : %s", button_id, scenario_found.name)
+                result = scenario_found.handle_button_click(button_id, self, contact)
+                if result.get('success'):
+                    self.content = f"[Scénario: {scenario_found.name}] Réponse envoyée"
+                else:
+                    self.content = f"[Scénario: {scenario_found.name}] Erreur : {result.get('message', 'Erreur inconnue')}"
+                return
+            
+            # Si pas de scénario, cherche les actions de boutons classiques
             # D'abord recherche exacte
             actions = self.env['whatsapp.button.action'].search([
                 ('button_id', '=', button_id),
                 ('active', '=', True)
             ])
             
-            # Si pas trouvé, cherche par préfixe (pour les IDs dynamiques comme btn_validate_invoice_123)
+            # Si pas trouvé, cherche par préfixe (pour les IDs dynamiques comme btn_validate_order_98)
             if not actions:
                 # Cherche les actions dont le button_id est un préfixe du button_id reçu
                 all_actions = self.env['whatsapp.button.action'].search([
@@ -496,8 +705,12 @@ class WhatsappMessage(models.Model):
                 ])
                 
                 for action in all_actions:
+                    # Vérifie si le button_id reçu commence par le button_id de l'action suivi d'un underscore
+                    # Exemple: button_id="btn_validate_order_98" et action.button_id="btn_validate_order"
                     if button_id.startswith(action.button_id + '_') or button_id == action.button_id:
                         actions |= action
+                        # Ne break pas pour permettre de trouver toutes les actions correspondantes
+                        # Mais généralement il n'y en a qu'une, donc on peut break
                         break
             
             if not actions:
@@ -510,11 +723,13 @@ class WhatsappMessage(models.Model):
             _logger.info("Actions trouvées pour le bouton %s : %s", button_id, [a.name for a in actions])
             
             # Exécute chaque action
+            # Passe le button_id réel (avec ID) à l'action pour qu'elle puisse l'utiliser
             for action in actions:
                 try:
                     _logger.info("Exécution de l'action '%s' (ID: %s) pour le bouton %s", 
                                 action.name, action.id, button_id)
-                    result = action.execute_action(self, contact)
+                    # Passe le button_id réel (avec ID de la commande) à l'action
+                    result = action.execute_action(self, contact, button_id=button_id)
                     _logger.info("Action '%s' exécutée avec succès : %s", action.name, result.get('message', 'OK'))
                     
                     # Met à jour le contenu du message avec le résultat

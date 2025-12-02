@@ -10,14 +10,16 @@
             <!-- Insère le header avec le bouton avant le sheet -->
             <xpath expr="//form/sheet" position="before">
                 <header>
-                    <button name="action_send_whatsapp_invoice" 
+                    <field name="x_show_whatsapp_button" invisible="1"/>
+                    <button name="action_send_invoice_details_whatsapp" 
                             type="object"
-                            string="Envoyer facture par WhatsApp"
+                            string="Envoyer détails facture par WhatsApp"
                             class="oe_highlight"
                             icon="fa-whatsapp"
-                            attrs="{'invisible': ['|', ('move_type', 'not in', ['out_invoice', 'out_refund']), '|', ('state', '!=', 'posted'), ('partner_id', '=', False)]}"
-                            help="Envoie la facture en PDF par WhatsApp au partenaire. Le partenaire doit avoir un numéro de téléphone."
-                            confirm="Êtes-vous sûr de vouloir envoyer cette facture par WhatsApp ?"/>
+                            attrs="{'invisible': ['|', '|', ('move_type', 'not in', ['out_invoice', 'out_refund']), '|', ('state', '!=', 'posted'), ('partner_id', '=', False), ('x_show_whatsapp_button', '=', False)]}"
+                            help="Envoie les détails de la facture (date, nom, montant, produits) avec un bouton Payer par WhatsApp au partenaire. Le partenaire doit avoir un numéro de téléphone."
+                            confirm="Êtes-vous sûr de vouloir envoyer les détails de cette facture par WhatsApp ?"/>
+                   
                 </header>
             </xpath>
         </field>

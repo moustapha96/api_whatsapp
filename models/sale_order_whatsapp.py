@@ -6,12 +6,41 @@ from odoo.tools import config
 from datetime import datetime
 import logging
 import json
+import base64
 
 _logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
+    
+    @api.depends()
+    def _compute_show_whatsapp_button(self):
+        """Calcule si le bouton WhatsApp doit être affiché selon la configuration"""
+        config = self.env['whatsapp.config'].get_active_config()
+        show_button = config.show_button_in_order if config else True
+        for record in self:
+            record.x_show_whatsapp_button = show_button
+    
+    x_show_whatsapp_button = fields.Boolean(
+        string="Afficher bouton WhatsApp",
+        compute="_compute_show_whatsapp_button",
+        store=False,
+        help="Indique si le bouton WhatsApp doit être affiché selon la configuration"
+    )
+    
+    @api.depends('partner_id', 'partner_id.phone', 'partner_id.mobile')
+    def _compute_has_phone(self):
+        """Calcule si le partenaire a un numéro de téléphone"""
+        for record in self:
+            record.x_has_phone = bool(record.partner_id and (record.partner_id.phone or record.partner_id.mobile))
+    
+    x_has_phone = fields.Boolean(
+        string="A un numéro de téléphone",
+        compute="_compute_has_phone",
+        store=False,
+        help="Indique si le partenaire a un numéro de téléphone"
+    )
 
     x_whatsapp_validation_sent = fields.Boolean(
         string="Validation WhatsApp envoyée",
@@ -71,13 +100,16 @@ class SaleOrder(models.Model):
         # Crée les commandes
         orders = super().create(vals_list)
         
-        # Envoie un message WhatsApp pour chaque commande créée
-        for order in orders:
-            try:
-                order._send_whatsapp_creation_notification()
-            except Exception as e:
-                _logger.warning("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s: %s", order.name, str(e))
-                # Ne bloque pas la création de la commande si l'envoi échoue
+        # Vérifie si l'envoi automatique est activé
+        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if whatsapp_config and whatsapp_config.auto_send_order_creation:
+            # Envoie un message WhatsApp pour chaque commande créée
+            for order in orders:
+                try:
+                    order._send_whatsapp_creation_notification()
+                except Exception as e:
+                    _logger.warning("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s: %s", order.name, str(e))
+                    # Ne bloque pas la création de la commande si l'envoi échoue
         
         return orders
 
@@ -109,11 +141,72 @@ class SaleOrder(models.Model):
             return
         
         try:
-            # Prépare un message simple avec le bouton "Voir détail"
-            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nCliquez sur le bouton ci-dessous pour voir les détails de votre commande."
+            # Prépare un message avec 3 boutons : Valider, Annuler, Voir détail
+            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nSouhaitez-vous valider ou annuler cette commande ?"
             
-            # Ajoute un bouton "Voir détail" pour afficher les produits
+            # Génère le PDF pour le bouton de téléchargement
+            pdf_url = None
+            try:
+                # Essaie plusieurs méthodes pour trouver le rapport
+                report = None
+                report_names = ['sale.report_saleorder', 'sale.action_report_saleorder']
+                
+                for report_name in report_names:
+                    try:
+                        report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                        if report and report.exists() and report.id:
+                            break
+                        else:
+                            report = None
+                    except:
+                        report = None
+                        continue
+                
+                if not report or not report.exists():
+                    report = self.env['ir.actions.report'].search([
+                        ('report_name', 'in', report_names),
+                        ('model', '=', 'sale.order')
+                    ], limit=1)
+                
+                if report and report.exists():
+                    # Génère le PDF
+                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    
+                    if pdf_content:
+                        # Crée un attachment public pour le PDF
+                        attachment = self.env['ir.attachment'].create({
+                            'name': f"{self.name}.pdf",
+                            'type': 'binary',
+                            'datas': base64.b64encode(pdf_content),
+                            'res_model': 'sale.order',
+                            'res_id': self.id,
+                            'public': True,
+                        })
+                        
+                        # Génère l'URL publique de téléchargement
+                        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                        pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
+                        _logger.info("URL PDF générée pour la commande %s: %s", self.name, pdf_url)
+            except Exception as e:
+                _logger.warning("Erreur lors de la génération du PDF pour la commande %s: %s", self.name, str(e))
+            
+            # Ajoute les boutons : Valider, Annuler, Voir détail, et Télécharger PDF si disponible
+            # L'ID de la commande est inclus dans l'ID du bouton pour l'identifier
             buttons = [
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_validate_order_{self.id}",
+                        "title": "Valider"
+                    }
+                },
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_cancel_order_{self.id}",
+                        "title": "Annuler"
+                    }
+                },
                 {
                     "type": "reply",
                     "reply": {
@@ -123,7 +216,79 @@ class SaleOrder(models.Model):
                 }
             ]
             
-            # Envoie le message interactif avec le bouton
+            # Cherche les factures associées à la commande
+            invoice_pdf_url = None
+            invoices = self.env['account.move'].search([
+                ('invoice_origin', '=', self.name),
+                ('move_type', 'in', ['out_invoice', 'out_refund']),
+                ('state', '=', 'posted')
+            ], order='create_date desc', limit=1)
+            
+            if invoices:
+                # Génère le PDF de la facture la plus récente
+                try:
+                    report = None
+                    report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+                    
+                    for report_name in report_names:
+                        try:
+                            report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                            if report and report.exists() and report.id:
+                                break
+                            else:
+                                report = None
+                        except:
+                            report = None
+                            continue
+                    
+                    if not report or not report.exists():
+                        report = self.env['ir.actions.report'].search([
+                            ('report_name', 'in', report_names),
+                            ('model', '=', 'account.move')
+                        ], limit=1)
+                    
+                    if report and report.exists():
+                        invoice = invoices[0]
+                        invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                        
+                        if invoice_pdf_content:
+                            # Crée un attachment public pour le PDF de la facture
+                            invoice_attachment = self.env['ir.attachment'].create({
+                                'name': f"{invoice.name}.pdf",
+                                'type': 'binary',
+                                'datas': base64.b64encode(invoice_pdf_content),
+                                'res_model': 'account.move',
+                                'res_id': invoice.id,
+                                'public': True,
+                            })
+                            
+                            # Génère l'URL publique de téléchargement
+                            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                            invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
+                            _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
+                except Exception as e:
+                    _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+            
+            # Si facture disponible, remplace "Voir détail" par "Télécharger facture" (priorité)
+            # Sinon, si PDF commande disponible, remplace par "Télécharger devis"
+            if invoice_pdf_url:
+                buttons[2] = {
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_download_invoice_{invoices[0].id}",
+                        "title": "Télécharger facture"
+                    }
+                }
+            elif pdf_url:
+                buttons[2] = {
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_download_order_{self.id}",
+                        "title": "Télécharger devis"
+                    }
+                }
+            
+            # Envoie le message interactif avec les boutons
             phone = whatsapp_config._validate_phone_number(phone)
             result = whatsapp_config.send_interactive_message(
                 to_phone=phone,
@@ -261,13 +426,79 @@ class SaleOrder(models.Model):
             
             # Ajoute un message selon l'état
             if new_state == 'sale':
-                message += "Merci pour votre confiance."
+                # Génère le PDF de la facture et crée le bouton de téléchargement
+                invoice_pdf_url = None
                 
-                # Envoie le message texte simple
-                result = whatsapp_config.send_text_to_partner(
-                    partner_id=self.partner_id.id,
-                    message_text=message
-                )
+                if invoice:
+                    # Génère le PDF de la facture
+                    try:
+                        report = None
+                        report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+                        
+                        for report_name in report_names:
+                            try:
+                                report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                                if report and report.exists() and report.id:
+                                    break
+                                else:
+                                    report = None
+                            except:
+                                report = None
+                                continue
+                        
+                        if not report or not report.exists():
+                            report = self.env['ir.actions.report'].search([
+                                ('report_name', 'in', report_names),
+                                ('model', '=', 'account.move')
+                            ], limit=1)
+                        
+                        if report and report.exists():
+                            invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                            
+                            if invoice_pdf_content:
+                                # Crée un attachment public pour le PDF de la facture
+                                invoice_attachment = self.env['ir.attachment'].create({
+                                    'name': f"{invoice.name}.pdf",
+                                    'type': 'binary',
+                                    'datas': base64.b64encode(invoice_pdf_content),
+                                    'res_model': 'account.move',
+                                    'res_id': invoice.id,
+                                    'public': True,
+                                })
+                                
+                                # Génère l'URL publique de téléchargement
+                                base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                                invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
+                                _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
+                    except Exception as e:
+                        _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+                
+                # Prépare le message avec la facture
+                message += "\nMerci pour votre confiance."
+                message += "\n\nÉquipe CCTS"
+                
+                # Si on a une facture avec PDF, envoie un message interactif avec bouton
+                if invoice_pdf_url and invoice:
+                    buttons = [{
+                        "type": "reply",
+                        "reply": {
+                            "id": f"btn_download_invoice_{invoice.id}",
+                            "title": "Télécharger facture"
+                        }
+                    }]
+                    
+                    # Envoie le message interactif avec le bouton
+                    result = whatsapp_config.send_interactive_message(
+                        to_phone=phone,
+                        body_text=message,
+                        buttons=buttons
+                    )
+                else:
+                    # Envoie le message texte simple
+                    result = whatsapp_config.send_text_to_partner(
+                        partner_id=self.partner_id.id,
+                        message_text=message
+                    )
             elif new_state == 'done':
                 message += "Merci pour votre confiance.\n\n"
                 
@@ -426,3 +657,277 @@ class SaleOrder(models.Model):
         except Exception as e:
             _logger.exception("Erreur lors de l'envoi du message de validation")
             raise ValidationError(_("Erreur lors de l'envoi du message : %s") % str(e))
+    
+    def action_send_order_details_whatsapp(self):
+        """Envoie les détails de la commande par WhatsApp"""
+        self.ensure_one()
+        
+        # Vérifie qu'il y a un partenaire avec un numéro de téléphone
+        if not self.partner_id:
+            raise ValidationError(_("La commande n'a pas de partenaire associé."))
+        
+        # Vérifie si le partenaire a un numéro de téléphone
+        phone = self.partner_id.phone or self.partner_id.mobile
+        if not phone:
+            raise ValidationError(_("Le partenaire %s n'a pas de numéro de téléphone.") % self.partner_id.name)
+        
+        # Récupère la configuration WhatsApp active
+        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not whatsapp_config:
+            raise ValidationError(_("Aucune configuration WhatsApp active trouvée."))
+        
+        try:
+            # Construit le message avec les détails de la commande
+            details_message = f"📋 Détails de la commande {self.name}\n\n"
+            
+            # Informations générales
+            details_message += f"Client : {self.partner_id.name if self.partner_id else 'N/A'}\n"
+            details_message += f"Numéro : {self.name}\n"
+            details_message += f"Date : {self.date_order.strftime('%d/%m/%Y %H:%M') if self.date_order else 'N/A'}\n"
+            details_message += f"Montant total : {self.amount_total:.0f} F CFA\n\n"
+            
+            # Calcule le montant non payé et mentionne la facture si elle existe
+            unpaid_amount = self.amount_total
+            invoices = self.env['account.move'].search([
+                ('invoice_origin', '=', self.name),
+                ('move_type', 'in', ['out_invoice', 'out_refund']),
+                ('state', '=', 'posted')
+            ], order='create_date desc')
+            
+            if invoices:
+                total_paid = sum(invoices.mapped('amount_total')) - sum(invoices.mapped('amount_residual'))
+                unpaid_amount = sum(invoices.mapped('amount_residual'))
+                
+                # Mentionne la facture la plus récente
+                latest_invoice = invoices[0]
+                details_message += f"📄 Facture : {latest_invoice.name}\n"
+                if latest_invoice.invoice_date:
+                    details_message += f"Date facture : {latest_invoice.invoice_date.strftime('%d/%m/%Y')}\n"
+                details_message += f"Montant payé : {total_paid:.0f} F CFA\n"
+                details_message += f"Montant non payé : {unpaid_amount:.0f} F CFA\n\n"
+            else:
+                details_message += f"Montant non payé : {unpaid_amount:.0f} F CFA\n\n"
+            
+            # Liste des produits
+            if self.order_line:
+                details_message += "📦 Produits :\n"
+                details_message += "─" * 30 + "\n"
+                
+                for line in self.order_line:
+                    product_name = line.product_id.name if line.product_id else line.name
+                    quantity = line.product_uom_qty
+                    unit_price = line.price_unit
+                    subtotal = line.price_subtotal
+                    
+                    # Formate le nom du produit (limite à 30 caractères pour WhatsApp)
+                    if len(product_name) > 30:
+                        product_name = product_name[:27] + "..."
+                    
+                    details_message += f"• {product_name}\n"
+                    details_message += f"  Qté : {quantity:.0f}"
+                    
+                    # Affiche l'unité si disponible
+                    if line.product_uom:
+                        details_message += f" {line.product_uom.name}"
+                    
+                    details_message += f" × {unit_price:.0f} F CFA\n"
+                    details_message += f"  Sous-total : {subtotal:.0f} F CFA\n\n"
+            else:
+                details_message += "📦 Aucun produit dans cette commande.\n\n"
+            
+            # Totaux
+            details_message += "─" * 30 + "\n"
+            details_message += f"Sous-total : {self.amount_untaxed:.0f} F CFA\n"
+            
+            if self.amount_tax > 0:
+                details_message += f"TVA : {self.amount_tax:.0f} F CFA\n"
+            
+            details_message += f"Total : {self.amount_total:.0f} F CFA\n\n"
+            
+            # Informations supplémentaires
+            if self.partner_id.street:
+                details_message += f"📍 Adresse : {self.partner_id.street}\n"
+                if self.partner_id.city:
+                    details_message += f"   {self.partner_id.city}"
+                    if self.partner_id.zip:
+                        details_message += f" {self.partner_id.zip}"
+                    details_message += "\n\n"
+            
+            # Footer
+            details_message += "─" * 30 + "\n"
+            details_message += "Équipe CCTS"
+            
+            # Génère le PDF pour le bouton de téléchargement
+            pdf_url = None
+            try:
+                # Essaie plusieurs méthodes pour trouver le rapport
+                report = None
+                report_names = ['sale.report_saleorder', 'sale.action_report_saleorder']
+                
+                for report_name in report_names:
+                    try:
+                        report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                        if report and report.exists() and report.id:
+                            break
+                        else:
+                            report = None
+                    except:
+                        report = None
+                        continue
+                
+                if not report or not report.exists():
+                    report = self.env['ir.actions.report'].search([
+                        ('report_name', 'in', report_names),
+                        ('model', '=', 'sale.order')
+                    ], limit=1)
+                
+                if report and report.exists():
+                    # Génère le PDF
+                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    
+                    if pdf_content:
+                        # Crée un attachment public pour le PDF
+                        attachment = self.env['ir.attachment'].create({
+                            'name': f"{self.name}.pdf",
+                            'type': 'binary',
+                            'datas': base64.b64encode(pdf_content),
+                            'res_model': 'sale.order',
+                            'res_id': self.id,
+                            'public': True,
+                        })
+                        
+                        # Génère l'URL publique de téléchargement
+                        base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                        pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
+                        _logger.info("URL PDF générée pour la commande %s: %s", self.name, pdf_url)
+            except Exception as e:
+                _logger.warning("Erreur lors de la génération du PDF pour la commande %s: %s", self.name, str(e))
+            
+            # Cherche les factures associées à la commande
+            invoice_pdf_url = None
+            invoices = self.env['account.move'].search([
+                ('invoice_origin', '=', self.name),
+                ('move_type', 'in', ['out_invoice', 'out_refund']),
+                ('state', '=', 'posted')
+            ], order='create_date desc', limit=1)
+            
+            if invoices:
+                # Génère le PDF de la facture la plus récente
+                try:
+                    report = None
+                    report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+                    
+                    for report_name in report_names:
+                        try:
+                            report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                            if report and report.exists() and report.id:
+                                break
+                            else:
+                                report = None
+                        except:
+                            report = None
+                            continue
+                    
+                    if not report or not report.exists():
+                        report = self.env['ir.actions.report'].search([
+                            ('report_name', 'in', report_names),
+                            ('model', '=', 'account.move')
+                        ], limit=1)
+                    
+                    if report and report.exists():
+                        invoice = invoices[0]
+                        invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                        
+                        if invoice_pdf_content:
+                            # Crée un attachment public pour le PDF de la facture
+                            invoice_attachment = self.env['ir.attachment'].create({
+                                'name': f"{invoice.name}.pdf",
+                                'type': 'binary',
+                                'datas': base64.b64encode(invoice_pdf_content),
+                                'res_model': 'account.move',
+                                'res_id': invoice.id,
+                                'public': True,
+                            })
+                            
+                            # Génère l'URL publique de téléchargement
+                            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                            invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
+                            _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
+                except Exception as e:
+                    _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+            
+            # Crée les boutons pour le message interactif
+            buttons = []
+            
+            # Bouton "Télécharger PDF commande" si disponible
+            if pdf_url:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_download_order_{self.id}",
+                        "title": "Télécharger devis"
+                    }
+                })
+            
+            # Bouton "Télécharger facture" si disponible (priorité sur le devis si on a les deux)
+            if invoice_pdf_url:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_download_invoice_{invoices[0].id}",
+                        "title": "Télécharger facture"
+                    }
+                })
+            
+            # Envoie le message : interactif si boutons, texte sinon
+            if buttons:
+                # Message interactif avec bouton(s)
+                phone = whatsapp_config._validate_phone_number(phone)
+                result = whatsapp_config.send_interactive_message(
+                    to_phone=phone,
+                    body_text=details_message,
+                    buttons=buttons
+                )
+            else:
+                # Message texte simple si pas de boutons disponibles
+                result = whatsapp_config.send_text_to_partner(
+                    partner_id=self.partner_id.id,
+                    message_text=details_message
+                )
+            
+            # Crée ou met à jour la conversation
+            conversation = self.env['whatsapp.conversation'].search([
+                ('phone', '=', phone),
+                ('contact_id', '=', self.partner_id.id)
+            ], limit=1)
+            
+            if not conversation:
+                conversation = self.env['whatsapp.conversation'].create({
+                    'name': f"{self.partner_id.name} - {phone}",
+                    'phone': phone,
+                    'contact_id': self.partner_id.id,
+                    'contact_name': self.partner_id.name,
+                })
+            
+            # Lie le message à la conversation
+            if result.get('message_record') and conversation:
+                result['message_record'].conversation_id = conversation.id
+                result['message_record'].contact_id = self.partner_id.id
+            
+            # Retourne une notification de succès
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Succès'),
+                    'message': _('Détails de la commande envoyés par WhatsApp à %s') % self.partner_id.name,
+                    'type': 'success',
+                    'sticky': False,
+                }
+            }
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            _logger.exception("Erreur lors de l'envoi des détails de la commande")
+            raise ValidationError(_("Erreur lors de l'envoi des détails : %s") % str(e))

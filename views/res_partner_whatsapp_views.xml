@@ -11,12 +11,13 @@
             <!-- Si un header existe déjà, Odoo le gérera correctement -->
             <xpath expr="//form/sheet" position="before">
                 <header>
+                    <field name="x_show_whatsapp_button" invisible="1"/>
                     <button name="%(api_whatsapp.action_send_whatsapp_partner_message)d"
                             type="action"
                             string="Envoyer WhatsApp"
                             class="oe_highlight"
                             icon="fa-whatsapp"
-                            attrs="{'invisible': ['&amp;', ('phone', '=', False), ('mobile', '=', False)]}"
+                            attrs="{'invisible': ['|', '&amp;', ('phone', '=', False), ('mobile', '=', False), ('x_show_whatsapp_button', '=', False)]}"
                             context="{'default_partner_id': active_id}"/>
                 </header>
             </xpath>

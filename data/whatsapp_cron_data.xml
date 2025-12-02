@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Cron job pour envoyer les rappels de factures impayées -->
+    <record id="ir_cron_send_unpaid_invoice_reminders" model="ir.cron">
+        <field name="name">Envoyer les rappels de factures impayées par WhatsApp</field>
+        <field name="model_id" ref="base.model_ir_model"/>
+        <field name="state">code</field>
+        <field name="code">env['whatsapp.cron'].send_unpaid_invoice_reminders()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="numbercall">-1</field>
+        <field name="active" eval="True"/>
+        <field name="doall" eval="False"/>
+    </record>
+</odoo>
+

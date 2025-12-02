@@ -1,0 +1,327 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Actions de boutons pour le paiement de factures via WhatsApp -->
+<odoo>
+    <!-- Action pour afficher les options de paiement (Wave/Orange Money) -->
+    <record id="action_btn_pay_invoice" model="whatsapp.button.action">
+        <field name="name">Payer facture</field>
+        <field name="button_id">btn_pay_invoice</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+# Extrait l'ID de la facture depuis le button_id
+invoice_id = None
+invoice = None
+
+# Le button_id est au format "btn_pay_invoice_123" où 123 est l'ID de la facture
+if button_id and button_id.startswith('btn_pay_invoice_'):
+    try:
+        invoice_id_str = button_id.replace('btn_pay_invoice_', '')
+        invoice_id = int(invoice_id_str)
+        invoice = env['account.move'].browse(invoice_id)
+        if not invoice.exists():
+            invoice = None
+            _logger.warning("Facture avec ID %s n'existe pas (button_id: %s)", invoice_id, button_id)
+        else:
+            _logger.info("Facture trouvée par ID: %s (button_id: %s)", invoice.name, button_id)
+    except ValueError as e:
+        _logger.warning("Impossible de convertir l'ID de facture depuis button_id %s: %s", button_id, str(e))
+        invoice = None
+    except Exception as e:
+        _logger.warning("Erreur lors de la recherche de facture par ID depuis button_id %s: %s", button_id, str(e))
+        invoice = None
+
+# Si pas trouvé par ID, cherche par numéro de téléphone du partenaire
+if not invoice:
+    phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
+    if not phone_clean.startswith('+'):
+        phone_clean = '+' + phone_clean.lstrip('+')
+    
+    invoice = env['account.move'].search([
+        ('partner_id.phone', 'ilike', phone_clean),
+        ('move_type', 'in', ['out_invoice', 'out_refund']),
+        ('state', '=', 'posted'),
+        ('amount_residual', '>', 0)
+    ], order='create_date desc', limit=1)
+
+if invoice:
+    # Vérifie si les attributs de paiement existent (module res_api_rental)
+    has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
+    
+    # Si le module a une méthode dédiée, on lui laisse la responsabilité
+    # de remplir payment_link_wave / payment_link_orange_money.
+    if has_payment_links and hasattr(invoice, '_ensure_payment_links'):
+        invoice._ensure_payment_links()
+    
+    # Envoie un message avec les options de paiement
+    if message.config_id:
+        payment_message = f"💳 Options de paiement pour la facture {invoice.name}\n\n"
+        payment_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
+        payment_message += "Choisissez votre méthode de paiement :"
+        
+        # Crée deux boutons : Wave et Orange Money (seulement si les attributs existent)
+        buttons = []
+        if has_payment_links:
+            payment_link_wave = getattr(invoice, 'payment_link_wave', None)
+            payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
+            
+            if payment_link_wave:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_wave_{invoice.id}",
+                        "title": "Payer Wave"  # Limite WhatsApp: 20 caractères max
+                    }
+                })
+            if payment_link_orange:
+                buttons.append({
+                    "type": "reply",
+                    "reply": {
+                        "id": f"btn_pay_orange_{invoice.id}",
+                        "title": "Payer Orange"  # Limite WhatsApp: 20 caractères max (était 22)
+                    }
+                })
+        
+        # WhatsApp exige entre 1 et 3 boutons pour les messages interactifs
+        if len(buttons) > 0:
+            # Envoie un message interactif avec les boutons
+            result = message.config_id.send_interactive_message(
+                to_phone=message.phone,
+                body_text=payment_message,
+                buttons=buttons
+            )
+            
+            if result and isinstance(result, dict) and result.get('success'):
+                _logger.info("Options de paiement envoyées pour la facture %s", invoice.name)
+                message.content = f"Options de paiement facture {invoice.name} envoyées"
+            else:
+                _logger.warning("Échec de l'envoi des options de paiement pour la facture %s", invoice.name)
+                message.content = f"Échec envoi options paiement: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
+        else:
+            # Si aucun bouton disponible, envoie un message texte avec les liens
+            _logger.warning("Aucun lien de paiement disponible pour la facture %s, envoi message texte", invoice.name)
+            payment_message += "\n\nAucune option de paiement en ligne disponible pour le moment."
+            payment_message += "\nVeuillez contacter le service client pour régler cette facture."
+            
+            result = message.config_id.send_text_to_partner(
+                partner_id=invoice.partner_id.id,
+                message_text=payment_message
+            )
+            
+            if result and isinstance(result, dict) and result.get('success'):
+                _logger.info("Message de paiement (texte) envoyé pour la facture %s", invoice.name)
+                message.content = f"Message paiement facture {invoice.name} envoyé (sans options)"
+            else:
+                _logger.warning("Échec de l'envoi du message de paiement pour la facture %s", invoice.name)
+                message.content = f"Échec envoi message: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
+    else:
+        _logger.warning("Configuration WhatsApp non trouvée pour envoyer les options de paiement")
+        message.content = "Configuration WhatsApp non trouvée"
+else:
+    _logger.warning("Aucune facture trouvée pour paiement via WhatsApp - Bouton: %s, Numéro: %s", button_id, message.phone)
+    message.content = "Aucune facture trouvée"
+]]></field>
+        <field name="sequence">10</field>
+        <field name="active">True</field>
+        <field name="description">Affiche les options de paiement (Wave/Orange Money) lorsque le client clique sur "Payer"</field>
+    </record>
+    
+    <!-- Action pour envoyer le lien de paiement Wave -->
+    <record id="action_btn_pay_wave" model="whatsapp.button.action">
+        <field name="name">Payer avec Wave</field>
+        <field name="button_id">btn_pay_wave</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+# Extrait l'ID de la facture depuis le button_id
+invoice_id = None
+invoice = None
+
+# Le button_id est au format "btn_pay_wave_123" où 123 est l'ID de la facture
+if button_id and button_id.startswith('btn_pay_wave_'):
+    try:
+        invoice_id_str = button_id.replace('btn_pay_wave_', '')
+        invoice_id = int(invoice_id_str)
+        invoice = env['account.move'].browse(invoice_id)
+        if not invoice.exists():
+            invoice = None
+            _logger.warning("Facture avec ID %s n'existe pas (button_id: %s)", invoice_id, button_id)
+        else:
+            _logger.info("Facture trouvée par ID: %s (button_id: %s)", invoice.name, button_id)
+    except ValueError as e:
+        _logger.warning("Impossible de convertir l'ID de facture depuis button_id %s: %s", button_id, str(e))
+        invoice = None
+    except Exception as e:
+        _logger.warning("Erreur lors de la recherche de facture par ID depuis button_id %s: %s", button_id, str(e))
+        invoice = None
+
+# Si pas trouvé par ID, cherche par numéro de téléphone du partenaire
+if not invoice:
+    phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
+    if not phone_clean.startswith('+'):
+        phone_clean = '+' + phone_clean.lstrip('+')
+    
+    invoice = env['account.move'].search([
+        ('partner_id.phone', 'ilike', phone_clean),
+        ('move_type', 'in', ['out_invoice', 'out_refund']),
+        ('state', '=', 'posted'),
+        ('amount_residual', '>', 0)
+    ], order='create_date desc', limit=1)
+
+if invoice:
+    # Vérifie si les attributs de paiement existent
+    has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
+    
+    # Si le module a une méthode dédiée, on lui laisse la responsabilité
+    # de remplir payment_link_wave.
+    payment_link_wave = None
+    if has_payment_links:
+        if hasattr(invoice, '_ensure_payment_links'):
+            invoice._ensure_payment_links()
+        
+        payment_link_wave = getattr(invoice, 'payment_link_wave', None)
+    
+    if payment_link_wave:
+        # Envoie un message interactif avec le lien Wave + un bouton pour télécharger la facture
+        if message.config_id:
+            wave_message = f"💳 Paiement Wave pour la facture {invoice.name}\n\n"
+            wave_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
+            wave_message += f"Cliquez sur le lien ci-dessous pour payer avec Wave :\n\n"
+            wave_message += f"{invoice.payment_link_wave}\n\n"
+            wave_message += "─" * 30 + "\n"
+            wave_message += "Équipe CCTS"
+
+            # Prépare un bouton pour télécharger la facture (PDF)
+            buttons = [{
+                "type": "reply",
+                "reply": {
+                    "id": f"btn_download_invoice_{invoice.id}",
+                    "title": "Télécharger facture",
+                },
+            }]
+
+            result = message.config_id.send_interactive_message(
+                to_phone=message.phone,
+                body_text=wave_message,
+                buttons=buttons,
+            )
+
+            if result and isinstance(result, dict) and result.get('success'):
+                _logger.info("Lien Wave + bouton téléchargement envoyés pour la facture %s", invoice.name)
+                message.content = f"Lien Wave + bouton téléchargement facture {invoice.name} envoyés"
+            else:
+                _logger.warning("Échec de l'envoi du message Wave pour la facture %s", invoice.name)
+                message.content = f"Échec envoi lien Wave: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
+        else:
+            _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien Wave")
+            message.content = "Configuration WhatsApp non trouvée"
+    else:
+        _logger.warning("Aucun lien de paiement Wave disponible pour la facture %s", invoice.name)
+        message.content = "Lien Wave non disponible"
+else:
+    _logger.warning("Aucune facture trouvée pour paiement Wave via WhatsApp - Bouton: %s, Numéro: %s", button_id, message.phone)
+    message.content = "Aucune facture trouvée"
+]]></field>
+        <field name="sequence">11</field>
+        <field name="active">True</field>
+        <field name="description">Envoie le lien de paiement Wave lorsque le client clique sur "Payer avec Wave"</field>
+    </record>
+    
+    <!-- Action pour envoyer le lien de paiement Orange Money -->
+    <record id="action_btn_pay_orange" model="whatsapp.button.action">
+        <field name="name">Payer avec Orange Money</field>
+        <field name="button_id">btn_pay_orange</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+# Extrait l'ID de la facture depuis le button_id
+invoice_id = None
+invoice = None
+
+# Le button_id est au format "btn_pay_orange_123" où 123 est l'ID de la facture
+if button_id and button_id.startswith('btn_pay_orange_'):
+    try:
+        invoice_id_str = button_id.replace('btn_pay_orange_', '')
+        invoice_id = int(invoice_id_str)
+        invoice = env['account.move'].browse(invoice_id)
+        if not invoice.exists():
+            invoice = None
+            _logger.warning("Facture avec ID %s n'existe pas (button_id: %s)", invoice_id, button_id)
+        else:
+            _logger.info("Facture trouvée par ID: %s (button_id: %s)", invoice.name, button_id)
+    except ValueError as e:
+        _logger.warning("Impossible de convertir l'ID de facture depuis button_id %s: %s", button_id, str(e))
+        invoice = None
+    except Exception as e:
+        _logger.warning("Erreur lors de la recherche de facture par ID depuis button_id %s: %s", button_id, str(e))
+        invoice = None
+
+# Si pas trouvé par ID, cherche par numéro de téléphone du partenaire
+if not invoice:
+    phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '')
+    if not phone_clean.startswith('+'):
+        phone_clean = '+' + phone_clean.lstrip('+')
+    
+    invoice = env['account.move'].search([
+        ('partner_id.phone', 'ilike', phone_clean),
+        ('move_type', 'in', ['out_invoice', 'out_refund']),
+        ('state', '=', 'posted'),
+        ('amount_residual', '>', 0)
+    ], order='create_date desc', limit=1)
+
+if invoice:
+    # Vérifie si les attributs de paiement existent
+    has_payment_links = hasattr(invoice, 'payment_link_wave') and hasattr(invoice, 'payment_link_orange_money')
+    
+    # Si le module a une méthode dédiée, on lui laisse la responsabilité
+    # de remplir payment_link_orange_money.
+    payment_link_orange = None
+    if has_payment_links:
+        if hasattr(invoice, '_ensure_payment_links'):
+            invoice._ensure_payment_links()
+        
+        payment_link_orange = getattr(invoice, 'payment_link_orange_money', None)
+    
+    if payment_link_orange:
+        # Envoie un message interactif avec le lien Orange Money + un bouton pour télécharger la facture
+        if message.config_id:
+            orange_message = f"💳 Paiement Orange Money pour la facture {invoice.name}\n\n"
+            orange_message += f"Montant à payer : {invoice.amount_residual:.0f} {invoice.currency_id.symbol}\n\n"
+            orange_message += f"Cliquez sur le lien ci-dessous pour payer avec Orange Money :\n\n"
+            orange_message += f"{invoice.payment_link_orange_money}\n\n"
+            orange_message += "─" * 30 + "\n"
+            orange_message += "Équipe CCTS"
+
+            # Prépare un bouton pour télécharger la facture (PDF)
+            buttons = [{
+                "type": "reply",
+                "reply": {
+                    "id": f"btn_download_invoice_{invoice.id}",
+                    "title": "Télécharger facture",
+                },
+            }]
+
+            result = message.config_id.send_interactive_message(
+                to_phone=message.phone,
+                body_text=orange_message,
+                buttons=buttons,
+            )
+
+            if result and isinstance(result, dict) and result.get('success'):
+                _logger.info("Lien Orange Money + bouton téléchargement envoyés pour la facture %s", invoice.name)
+                message.content = f"Lien Orange Money + bouton téléchargement facture {invoice.name} envoyés"
+            else:
+                _logger.warning("Échec de l'envoi du message Orange Money pour la facture %s", invoice.name)
+                message.content = f"Échec envoi lien Orange Money: {result.get('error', 'Erreur inconnue') if result else 'Aucun résultat'}"
+        else:
+            _logger.warning("Configuration WhatsApp non trouvée pour envoyer le lien Orange Money")
+            message.content = "Configuration WhatsApp non trouvée"
+    else:
+        _logger.warning("Aucun lien de paiement Orange Money disponible pour la facture %s", invoice.name)
+        message.content = "Lien Orange Money non disponible"
+else:
+    _logger.warning("Aucune facture trouvée pour paiement Orange Money via WhatsApp - Bouton: %s, Numéro: %s", button_id, message.phone)
+    message.content = "Aucune facture trouvée"
+]]></field>
+        <field name="sequence">12</field>
+        <field name="active">True</field>
+        <field name="description">Envoie le lien de paiement Orange Money lorsque le client clique sur "Payer avec Orange Money"</field>
+    </record>
+</odoo>
+

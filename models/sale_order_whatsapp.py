@@ -94,25 +94,25 @@ class SaleOrder(models.Model):
         string="Date envoi détails WhatsApp"
     )
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        """Surcharge la méthode create pour envoyer un message WhatsApp à la création"""
-        # Crée les commandes
-        orders = super().create(vals_list)
+    # @api.model_create_multi
+    # def create(self, vals_list):
+    #     """Surcharge la méthode create pour envoyer un message WhatsApp à la création"""
+    #     # Crée les commandes
+    #     orders = super().create(vals_list)
         
-        # Vérifie si l'envoi automatique est activé
-        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-        if whatsapp_config and whatsapp_config.auto_send_order_creation:
-            # Envoie un message WhatsApp pour chaque commande créée
-            for order in orders:
-                if order.type_sale != "creditorder":
-                    try:
-                        order._send_whatsapp_creation_notification()
-                    except Exception as e:
-                        _logger.warning("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s: %s", order.name, str(e))
-                        # Ne bloque pas la création de la commande si l'envoi échoue
+    #     # Envoie un message WhatsApp pour chaque commande créée
+    #     # La méthode _should_send_whatsapp_notification vérifie automatiquement :
+    #     # - Si c'est une commande à crédit (exclue)
+    #     # - Si l'envoi automatique est activé
+    #     # - Si le message n'a pas déjà été envoyé
+    #     for order in orders:
+    #         try:
+    #             order._send_whatsapp_creation_notification()
+    #         except Exception as e:
+    #             _logger.warning("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s: %s", order.name, str(e))
+    #             # Ne bloque pas la création de la commande si l'envoi échoue
         
-        return orders
+    #     return orders
 
     def _get_invoice_pdf_url(self, invoice):
         """Génère l'URL publique de téléchargement du PDF d'une facture
@@ -187,39 +187,79 @@ class SaleOrder(models.Model):
         
         return invoice if invoice else None
     
-    def _send_whatsapp_creation_notification(self):
-        """Envoie un message WhatsApp pour confirmer la création de la commande
+    def _should_send_whatsapp_notification(self, notification_type='creation'):
+        """
+        Vérifie si un message WhatsApp doit être envoyé pour cette commande.
         
-        Note: La facture n'est envoyée que si la commande est en 'sale' ou 'done'
+        Cette méthode centralise la logique pour éviter les doublons et les conflits
+        avec le système de notifications pour les commandes à crédit.
+        
+        Args:
+            notification_type: Type de notification ('creation', 'state_change')
+            
+        Returns:
+            bool: True si le message doit être envoyé, False sinon
         """
         self.ensure_one()
         
+        # Ne pas envoyer pour les commandes à crédit (gérées par whatsapp.admin.notification)
+        if hasattr(self, 'type_sale') and self.type_sale == 'creditorder':
+            _logger.debug("Commande %s est une commande à crédit, notification WhatsApp standard ignorée", self.name)
+            return False
+        
         # Vérifie qu'il y a un partenaire avec un numéro de téléphone
         if not self.partner_id:
-            return
+            return False
         
-        # Vérifie si le partenaire a un numéro de téléphone
         phone = self.partner_id.phone or self.partner_id.mobile
         if not phone:
-            _logger.info("Pas de numéro de téléphone pour le partenaire %s, message WhatsApp non envoyé", self.partner_id.name)
-            return
+            return False
         
-        # Vérifie si le message a déjà été envoyé (évite les doublons)
-        if self.x_whatsapp_creation_sent:
-            return
-        
-        # Récupère la configuration WhatsApp active
+        # Vérifie la configuration WhatsApp
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
         if not whatsapp_config:
-            # Ne log pas d'avertissement en mode test
-            is_test_mode = config.get('test_enable') or config.get('test_file') or self.env.context.get('test_mode')
-            if not is_test_mode:
-                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer le message de création")
+            return False
+        
+        # Vérifie si l'envoi automatique est activé (pour les notifications de création)
+        if notification_type == 'creation':
+            if not whatsapp_config.auto_send_order_creation:
+                return False
+            
+            # Vérifie si le message a déjà été envoyé
+            if self.x_whatsapp_creation_sent:
+                return False
+        
+        # Pour les changements d'état, vérifie que l'état est 'sale' ou 'done'
+        if notification_type == 'state_change':
+            if self.state not in ['sale', 'done']:
+                return False
+            
+            # Vérifie si le message a déjà été envoyé pour cet état
+            if self.x_whatsapp_state_sent and self.state in ['sale', 'done']:
+                return False
+        
+        return True
+    
+    def _send_whatsapp_creation_notification(self):
+        """Envoie un message WhatsApp pour confirmer la création de la commande
+        
+        Note: 
+        - La facture n'est envoyée que si la commande est en 'sale' ou 'done'
+        - Les commandes à crédit sont exclues (gérées par whatsapp.admin.notification)
+        """
+        self.ensure_one()
+        
+        # Vérifie si le message doit être envoyé (méthode centralisée)
+        if not self._should_send_whatsapp_notification(notification_type='creation'):
             return
+        
+        # Récupère la configuration WhatsApp active (déjà vérifiée dans _should_send_whatsapp_notification)
+        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        phone = self.partner_id.phone or self.partner_id.mobile
         
         try:
             # Prépare un message avec 3 boutons : Valider, Annuler, Voir détail
-            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nSouhaitez-vous valider ou annuler cette commande ?"
+            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nEquipe CCBM SHOP"
             
             # Génère le PDF pour le bouton de téléchargement
             pdf_url = None
@@ -367,41 +407,37 @@ class SaleOrder(models.Model):
                 new_state = vals.get('state')
                 old_state_value = old_state.get(record.id)
                 
+                # IMPORTANT: Ne pas envoyer pour les commandes à crédit (gérées par whatsapp.admin.notification)
+                if hasattr(record, 'type_sale') and record.type_sale == 'creditorder':
+                    continue
+                
                 # Envoie un message si l'état change vers 'sale' (confirmé) ou 'done' (terminé)
                 if old_state_value != new_state and new_state in ['sale', 'done']:
-                    try:
-                        record._send_whatsapp_state_notification(new_state, old_state_value)
-                    except Exception as e:
-                        _logger.warning("Erreur lors de l'envoi du message WhatsApp d'état pour la commande %s: %s", record.name, str(e))
+                    # Vérifie si le message doit être envoyé (méthode centralisée)
+                    if record._should_send_whatsapp_notification(notification_type='state_change'):
+                        try:
+                            record._send_whatsapp_state_notification(new_state, old_state_value)
+                        except Exception as e:
+                            _logger.warning("Erreur lors de l'envoi du message WhatsApp d'état pour la commande %s: %s", record.name, str(e))
         
         return result
 
     def _send_whatsapp_state_notification(self, new_state, old_state):
-        """Envoie un message WhatsApp avec l'état de la commande, la facture et le nouveau montant"""
+        """Envoie un message WhatsApp avec l'état de la commande, la facture et le nouveau montant
+        
+        Note: 
+        - Les commandes à crédit sont exclues (gérées par whatsapp.admin.notification)
+        - La facture n'est envoyée que si elle est confirmée (state='posted')
+        """
         self.ensure_one()
         
-        # Vérifie qu'il y a un partenaire avec un numéro de téléphone
-        if not self.partner_id:
+        # Vérifie si le message doit être envoyé (méthode centralisée)
+        if not self._should_send_whatsapp_notification(notification_type='state_change'):
             return
         
-        # Vérifie si le partenaire a un numéro de téléphone
-        phone = self.partner_id.phone or self.partner_id.mobile
-        if not phone:
-            _logger.info("Pas de numéro de téléphone pour le partenaire %s, message WhatsApp d'état non envoyé", self.partner_id.name)
-            return
-        
-        # Vérifie si le message a déjà été envoyé pour cet état (évite les doublons)
-        if self.x_whatsapp_state_sent and self.state == new_state:
-            return
-        
-        # Récupère la configuration WhatsApp active
+        # Récupère la configuration WhatsApp active (déjà vérifiée dans _should_send_whatsapp_notification)
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-        if not whatsapp_config:
-            # Ne log pas d'avertissement en mode test
-            is_test_mode = config.get('test_enable') or config.get('test_file') or self.env.context.get('test_mode')
-            if not is_test_mode:
-                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer le message d'état")
-            return
+        phone = self.partner_id.phone or self.partner_id.mobile
         
         try:
             # Nettoie le numéro de téléphone

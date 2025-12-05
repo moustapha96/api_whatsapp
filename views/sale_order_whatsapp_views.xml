@@ -1,5 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- Hérite de la vue formulaire de commande pour ajouter un bouton WhatsApp -->
+    <record id="view_sale_order_form_whatsapp_button" model="ir.ui.view">
+        <field name="name">sale.order.form.whatsapp</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <!-- Insère le header avec le bouton avant le sheet -->
+            <xpath expr="//form/sheet" position="before">
+                <header>
+                    <field name="x_show_whatsapp_button" invisible="1"/>
+                    <field name="x_has_phone" invisible="1"/>
+                    <button name="action_send_order_details_whatsapp" 
+                            type="object"
+                            string="Envoyer détails commande par WhatsApp"
+                            class="oe_highlight"
+                            icon="fa-whatsapp"
+                            attrs="{'invisible': ['|', '|', ('partner_id', '=', False), ('x_show_whatsapp_button', '=', False), ('x_has_phone', '=', False)]}"
+                            help="Envoie les détails de la commande (date, nom, montant non payé, produits) par WhatsApp au partenaire. Le partenaire doit avoir un numéro de téléphone."
+                            confirm="Êtes-vous sûr de vouloir envoyer les détails de cette commande par WhatsApp ?"/>
+                </header>
+            </xpath>
+        </field>
+    </record>
+    
     <!-- Action serveur pour envoyer la validation WhatsApp -->
     <!-- Cette solution évite les problèmes d'ID externe de vue -->
     <!-- L'action apparaîtra dans le menu "Action" de la vue formulaire des commandes -->

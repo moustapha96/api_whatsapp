@@ -1,79 +1,53 @@
-# Documentation Technique - Module WhatsApp Business API pour Odoo
+# Documentation Technique - Module WhatsApp Business API pour Odoo 16
 
 ## Table des matières
 
 1. [Vue d'ensemble](#vue-densemble)
 2. [Architecture](#architecture)
 3. [Modèles de données](#modèles-de-données)
-4. [API et méthodes principales](#api-et-méthodes-principales)
-5. [Contrôleurs et Webhooks](#contrôleurs-et-webhooks)
-6. [Vues et interfaces](#vues-et-interfaces)
-7. [Sécurité](#sécurité)
-8. [Intégrations](#intégrations)
-9. [Configuration](#configuration)
-10. [Exemples d'utilisation](#exemples-dutilisation)
+4. [Fonctionnalités principales](#fonctionnalités-principales)
+5. [Intégration API WhatsApp](#intégration-api-whatsapp)
+6. [Webhooks](#webhooks)
+7. [Configuration](#configuration)
+8. [Utilisation](#utilisation)
+9. [Exemples de code](#exemples-de-code)
+10. [Dépannage](#dépannage)
 
 ---
 
 ## Vue d'ensemble
 
-### Informations générales
+### Description
 
-- **Nom du module** : `api_whatsapp`
-- **Version** : 16.0.1.0.0
+Le module **WhatsApp b-2-b** est une intégration complète de l'API WhatsApp Business Cloud pour Odoo 16. Il permet d'envoyer et de recevoir des messages WhatsApp directement depuis Odoo, avec support des messages texte, images, documents, templates, et messages interactifs avec boutons.
+
+### Version
+
+- **Version du module** : 16.0.1.0.0
+- **Version Odoo requise** : 16.0
 - **Auteur** : Al Hussein
 - **Licence** : LGPL-3
-- **Catégorie** : CCBM
-- **Odoo Version** : 16.0
 
 ### Dépendances
 
-**Modules Odoo** :
-- `base` : Fonctionnalités de base d'Odoo
-- `contacts` : Gestion des contacts/partenaires
-- `sale` : Commandes de vente (optionnel, pour l'intégration)
-
-**Dépendances Python** :
-- `requests` : Pour les appels API HTTP
+- **Modules Odoo** : `base`, `contacts`, `sale`, `account`
+- **Bibliothèques Python** : `requests`
 
 ### Fonctionnalités principales
 
-1. **Configuration WhatsApp Business Cloud API**
-   - Gestion des tokens d'accès
-   - Configuration des endpoints
-   - Gestion des webhooks
-
-2. **Envoi de messages**
-   - Messages texte simples
-   - Templates WhatsApp approuvés
-   - Messages interactifs avec boutons
-   - Messages média (image, vidéo, document, audio, localisation)
-
-3. **Réception de messages**
-   - Webhook pour recevoir les messages entrants
-   - Traitement des statuts de messages
-   - Gestion des interactions (boutons)
-
-4. **Journalisation**
-   - Historique complet des messages
-   - Suivi des statuts
-   - Gestion des conversations
-
-5. **Templates**
-   - Synchronisation des templates depuis Meta
-   - Gestion des templates approuvés
-   - Utilisation des templates avec paramètres
-
-6. **Actions de boutons**
-   - Configuration d'actions automatiques
-   - Exécution de code Python personnalisé
-   - Mise à jour de contacts
-   - Création de tickets
-
-7. **Intégrations**
-   - Intégration avec `sale.order` (commandes)
-   - Intégration avec `res.partner` (partenaires)
-   - Envoi automatique de notifications
+- ✅ Configuration de compte WhatsApp Business
+- ✅ Envoi de messages texte, images, documents
+- ✅ Envoi de templates WhatsApp avec paramètres dynamiques
+- ✅ Messages interactifs avec boutons (reply, URL)
+- ✅ Réception de messages via webhook
+- ✅ Journalisation complète des messages
+- ✅ Gestion des conversations
+- ✅ Intégration avec les commandes (sale.order)
+- ✅ Intégration avec les factures (account.move)
+- ✅ Scénarios interactifs multi-étapes
+- ✅ Actions personnalisées sur boutons
+- ✅ Envoi automatique de notifications
+- ✅ Rappels automatiques de factures impayées
 
 ---
 
@@ -87,34 +61,46 @@ api_whatsapp/
 ├── __manifest__.py
 ├── controllers/
 │   ├── __init__.py
-│   └── whatsapp_webhook.py          # Contrôleur webhook
+│   └── whatsapp_webhook.py          # Gestion des webhooks Meta
+├── data/
+│   ├── whatsapp_button_action_examples.xml
+│   ├── whatsapp_cron_data.xml
+│   ├── whatsapp_invoice_download_action.xml
+│   ├── whatsapp_invoice_payment_actions.xml
+│   ├── whatsapp_invoice_validation_actions.xml
+│   ├── whatsapp_order_details_actions.xml
+│   ├── whatsapp_order_download_action.xml
+│   ├── whatsapp_order_validation_actions.xml
+│   ├── whatsapp_order_validation_actions_v2.xml
+│   └── whatsapp_template_examples.xml
 ├── models/
 │   ├── __init__.py
-│   ├── whatsapp_config.py           # Configuration WhatsApp
-│   ├── whatsapp_message.py         # Messages WhatsApp
-│   ├── whatsapp_conversation.py    # Conversations
-│   ├── whatsapp_template.py        # Templates
-│   ├── whatsapp_send_message.py    # Wizards d'envoi
-│   ├── whatsapp_send_partner_message.py  # Wizard envoi partenaire
-│   ├── whatsapp_button_action.py   # Actions de boutons
-│   ├── sale_order_whatsapp.py      # Extension sale.order
-│   └── res_config_settings.py      # Paramètres système
-├── views/
-│   ├── whatsapp_config_views.xml
-│   ├── whatsapp_message_views.xml
-│   ├── whatsapp_conversation_views.xml
-│   ├── whatsapp_template_views.xml
-│   ├── whatsapp_send_message_views.xml
-│   ├── whatsapp_send_partner_message_views.xml
-│   ├── whatsapp_button_action_views.xml
-│   ├── res_partner_whatsapp_views.xml
-│   └── sale_order_whatsapp_views.xml
+│   ├── whatsapp_config.py           # Configuration principale
+│   ├── whatsapp_message.py           # Journal des messages
+│   ├── whatsapp_conversation.py      # Conversations
+│   ├── whatsapp_template.py          # Templates WhatsApp
+│   ├── whatsapp_send_message.py      # Wizards d'envoi
+│   ├── whatsapp_send_partner_message.py
+│   ├── whatsapp_button_action.py     # Actions sur boutons
+│   ├── whatsapp_interactive_scenario.py  # Scénarios interactifs
+│   ├── whatsapp_cron.py              # Tâches planifiées
+│   ├── account_move_whatsapp.py      # Intégration factures
+│   ├── sale_order_whatsapp.py        # Intégration commandes
+│   ├── res_partner_whatsapp.py       # Extension partenaires
+│   └── res_config_settings.py
 ├── security/
-│   └── ir.model.access.csv          # Droits d'accès
-└── data/
-    ├── whatsapp_template_examples.xml
-    ├── whatsapp_button_action_examples.xml
-    └── whatsapp_order_validation_actions.xml
+│   └── ir.model.access.csv           # Droits d'accès
+└── views/
+    ├── whatsapp_config_views.xml
+    ├── whatsapp_message_views.xml
+    ├── whatsapp_conversation_views.xml
+    ├── whatsapp_template_views.xml
+    ├── whatsapp_send_message_views.xml
+    ├── whatsapp_button_action_views.xml
+    ├── whatsapp_interactive_scenario_views.xml
+    ├── account_move_whatsapp_views.xml
+    ├── sale_order_whatsapp_views.xml
+    └── res_partner_whatsapp_views.xml
 ```
 
 ### Flux de données
@@ -122,834 +108,835 @@ api_whatsapp/
 ```
 ┌─────────────┐
 │   Odoo      │
-│  Interface  │
+│  (Backend)  │
 └──────┬──────┘
        │
-       ▼
-┌─────────────────┐
-│  Models Odoo    │
-│  (whatsapp.*)   │
-└──────┬──────────┘
+       ├─── Envoi ───> API WhatsApp Cloud ───> WhatsApp
        │
-       ▼
-┌─────────────────┐
-│  WhatsApp API   │
-│  (Meta Cloud)   │
-└──────┬──────────┘
-       │
-       ▼
-┌─────────────────┐
-│   Webhook       │
-│  (Réception)    │
-└─────────────────┘
+       └─── Réception <─── Webhook Meta <─── WhatsApp
 ```
 
 ---
 
 ## Modèles de données
 
-### 1. `whatsapp.config`
+### 1. whatsapp.config
 
-**Description** : Configuration principale de l'API WhatsApp Business Cloud.
+**Description** : Configuration principale du compte WhatsApp Business.
 
 **Champs principaux** :
-- `name` (Char) : Nom de la configuration
-- `phone_number_id` (Char) : ID du numéro de téléphone WhatsApp
-- `access_token` (Char) : Token d'accès API
-- `api_version` (Char) : Version de l'API (défaut: v21.0)
-- `webhook_verify_token` (Char) : Token de vérification webhook
-- `webhook_url` (Char) : URL du webhook
-- `is_active` (Boolean) : Configuration active
+- `name` : Nom de la configuration
+- `is_active` : Configuration active (une seule active à la fois)
+- `phone_number_id` : ID du numéro de téléphone WhatsApp (Meta)
+- `access_token` : Token d'accès API
+- `facebook_app_secret` : Secret de l'application Facebook (pour validation webhook)
+- `verify_token` : Token de vérification webhook
+- `auto_send_order_creation` : Envoi automatique à la création de commande
+- `auto_send_unpaid_invoices` : Envoi automatique de rappels factures impayées
+- `unpaid_invoice_days` : Nombre de jours avant envoi rappel
+- `show_button_in_invoice` : Afficher bouton WhatsApp sur factures
+- `show_button_in_order` : Afficher bouton WhatsApp sur commandes
+- `show_button_in_partner` : Afficher bouton WhatsApp sur partenaires
 
 **Méthodes principales** :
-- `send_text_message(to_phone, body_text, preview_url=False)` : Envoie un message texte
-- `send_template_message(to_phone, template_name, language_code, components=None)` : Envoie un template
-- `send_interactive_message(to_phone, body_text, buttons=None)` : Envoie un message avec boutons
-- `send_text_to_partner(partner_id, message_text, preview_url=False, config_id=None)` : Fonction utilitaire pour envoyer à un partenaire
-- `action_sync_templates()` : Synchronise les templates depuis Meta
-- `action_verify_parameters()` : Vérifie les paramètres de configuration
-- `_validate_phone_number(phone)` : Valide et nettoie un numéro de téléphone
+- `send_text_message()` : Envoi message texte
+- `send_image_message()` : Envoi image
+- `send_document_message()` : Envoi document
+- `send_template_message()` : Envoi template
+- `send_interactive_message()` : Envoi message interactif
+- `send_text_to_partner()` : Envoi texte à un partenaire
+- `get_active_config()` : Récupère la config active
 
-### 2. `whatsapp.message`
+### 2. whatsapp.message
 
 **Description** : Journal de tous les messages WhatsApp (entrants et sortants).
 
 **Champs principaux** :
-- `direction` (Selection) : "in" (entrant) ou "out" (sortant)
-- `config_id` (Many2one) : Configuration utilisée
-- `conversation_id` (Many2one) : Conversation associée
-- `contact_id` (Many2one) : Contact/partenaire
-- `phone` (Char) : Numéro de téléphone
-- `wa_message_id` (Char) : ID du message WhatsApp
-- `wa_status` (Char) : Statut brut WhatsApp
-- `content` (Text) : Contenu du message
-- `message_type` (Selection) : Type (text, image, video, etc.)
-- `status` (Selection) : Statut (sent, delivered, read, error, etc.)
-- `raw_payload` (Text) : Payload JSON envoyé
-- `raw_response` (Text) : Réponse JSON reçue
-- `error_help` (Text) : Aide pour les erreurs (champ calculé)
+- `direction` : `in` (entrant) ou `out` (sortant)
+- `config_id` : Configuration utilisée
+- `conversation_id` : Conversation associée
+- `wa_message_id` : ID message WhatsApp (Meta)
+- `phone` : Numéro de téléphone
+- `contact_id` : Partenaire Odoo associé
+- `content` : Contenu du message
+- `message_type` : Type (text, image, document, interactive, etc.)
+- `status` : Statut (sent, delivered, read, error, etc.)
+- `raw_payload` : Payload JSON brut
+- `raw_response` : Réponse API brute
+
+**Relations** :
+- Many2one → `whatsapp.config`
+- Many2one → `whatsapp.conversation`
+- Many2one → `res.partner`
 
 **Méthodes principales** :
-- `create_from_webhook(webhook_data)` : Crée un message depuis un webhook
-- `_process_button_action()` : Traite les actions de boutons interactifs
+- `create_from_webhook()` : Création depuis webhook
+- `action_reply_message()` : Répondre à un message
 
-### 3. `whatsapp.conversation`
+### 3. whatsapp.conversation
 
-**Description** : Regroupe les messages par conversation.
+**Description** : Conversations WhatsApp avec les contacts.
 
 **Champs principaux** :
-- `name` (Char) : Identifiant de la conversation
-- `phone` (Char) : Numéro de téléphone
-- `contact_id` (Many2one) : Contact associé
-- `contact_name` (Char) : Nom du contact
-- `message_ids` (One2many) : Messages de la conversation
-- `message_count` (Integer) : Nombre de messages (calculé)
+- `name` : Identifiant de la conversation
+- `phone` : Numéro de téléphone
+- `contact_id` : Partenaire Odoo
+- `contact_name` : Nom du contact
+- `message_ids` : Messages de la conversation
+- `message_count` : Nombre de messages (calculé)
+
+**Relations** :
+- One2many → `whatsapp.message`
+
+### 4. whatsapp.template
+
+**Description** : Métadonnées des templates WhatsApp approuvés.
+
+**Champs principaux** :
+- `name` : Nom du template (Meta)
+- `language_code` : Code langue (fr, en, etc.)
+- `category` : Catégorie (MARKETING, UTILITY, AUTHENTICATION)
+- `status` : Statut (APPROVED, PENDING, REJECTED)
+- `parameter_structure` : Structure JSON des paramètres
+- `has_parameters` : A des paramètres (calculé)
 
 **Méthodes principales** :
-- `_compute_message_count()` : Calcule le nombre de messages
+- `get_parameter_structure()` : Parse la structure JSON
 
-### 4. `whatsapp.template`
+### 5. whatsapp.button.action
 
-**Description** : Templates WhatsApp synchronisés depuis Meta.
-
-**Champs principaux** :
-- `name` (Char) : Nom du template
-- `wa_name` (Char) : Nom dans WhatsApp
-- `language_code` (Char) : Code langue
-- `category` (Char) : Catégorie (UTILITY, MARKETING, etc.)
-- `status` (Char) : Statut (APPROVED, PENDING, etc.)
-- `description` (Text) : Description
-
-### 5. `whatsapp.send.message` (TransientModel)
-
-**Description** : Wizard pour envoyer un message texte simple.
+**Description** : Actions personnalisées exécutées lors du clic sur un bouton.
 
 **Champs principaux** :
-- `config_id` (Many2one) : Configuration
-- `phone` (Char) : Numéro de téléphone
-- `contact_id` (Many2one) : Contact
-- `message` (Text) : Message à envoyer
-- `preview_url` (Boolean) : Prévisualisation des liens
+- `name` : Nom de l'action
+- `button_id` : ID du bouton (ex: `btn_validate_order`)
+- `action_type` : Type (send_message, custom_python)
+- `python_code` : Code Python personnalisé
+- `response_message` : Message de réponse
+- `active` : Actif
 
 **Méthodes principales** :
-- `action_send_message()` : Envoie le message
+- `execute_action()` : Exécute l'action
 
-### 6. `whatsapp.send.template` (TransientModel)
+### 6. whatsapp.interactive.scenario
 
-**Description** : Wizard pour envoyer un message via template.
-
-**Champs principaux** :
-- `config_id` (Many2one) : Configuration
-- `template_id` (Many2one) : Template à utiliser
-- `phone` (Char) : Numéro de téléphone
-- `contact_id` (Many2one) : Contact
-- `language_code` (Char) : Code langue
-- `template_params` (Text) : Paramètres JSON du template
-- `use_custom_message` (Boolean) : Utiliser un message personnalisé
-- `custom_message` (Text) : Message personnalisé
-
-**Méthodes principales** :
-- `action_send_template()` : Envoie le template ou le message personnalisé
-
-### 7. `whatsapp.send.partner.message` (TransientModel)
-
-**Description** : Wizard pour envoyer un message à un partenaire.
+**Description** : Scénarios de messages interactifs avec réponses automatiques.
 
 **Champs principaux** :
-- `config_id` (Many2one) : Configuration
-- `partner_id` (Many2one) : Partenaire
-- `phone` (Char) : Numéro de téléphone
-- `message` (Text) : Message
-- `preview_url` (Boolean) : Prévisualisation des liens
+- `name` : Nom du scénario
+- `initial_message` : Message initial avec boutons
+- `button_1_id`, `button_1_title`, `button_1_response` : Bouton 1
+- `button_2_id`, `button_2_title`, `button_2_response` : Bouton 2
+- `button_3_id`, `button_3_title`, `button_3_response` : Bouton 3
+- `button_X_next_scenario_id` : Scénario suivant (multi-étapes)
+- `active` : Actif
 
 **Méthodes principales** :
-- `action_send_message()` : Envoie le message au partenaire
+- `handle_button_click()` : Gère le clic sur un bouton
+- `send_test_scenario()` : Envoie un test
 
-### 8. `whatsapp.send.interactive` (TransientModel)
-
-**Description** : Wizard pour envoyer un message avec boutons interactifs.
-
-**Champs principaux** :
-- `config_id` (Many2one) : Configuration
-- `phone` (Char) : Numéro de téléphone
-- `contact_id` (Many2one) : Contact
-- `message` (Text) : Message
-- `button_1_id`, `button_1_title` : Bouton 1
-- `button_2_id`, `button_2_title` : Bouton 2
-- `button_3_id`, `button_3_title` : Bouton 3
-
-**Méthodes principales** :
-- `action_send_interactive()` : Envoie le message avec boutons
-
-### 9. `whatsapp.button.action`
-
-**Description** : Actions à exécuter lors d'un clic sur un bouton WhatsApp.
-
-**Champs principaux** :
-- `name` (Char) : Nom de l'action
-- `button_id` (Char) : ID du bouton (unique)
-- `action_type` (Selection) : Type d'action
-  - `send_message` : Envoyer un message
-  - `update_contact` : Mettre à jour le contact
-  - `create_ticket` : Créer un ticket
-  - `update_status` : Mettre à jour le statut
-  - `custom_python` : Code Python personnalisé
-- `message_to_send` (Text) : Message à envoyer
-- `contact_field_to_update` (Char) : Champ contact à mettre à jour
-- `contact_field_value` (Char) : Valeur à définir
-- `python_code` (Text) : Code Python à exécuter
-- `active` (Boolean) : Actif
-- `sequence` (Integer) : Séquence
-
-**Méthodes principales** :
-- `execute_action(message, contact=None)` : Exécute l'action
-
-### 10. `sale.order` (Extension)
-
-**Description** : Extension du modèle `sale.order` pour l'intégration WhatsApp.
+### 7. Extension sale.order
 
 **Champs ajoutés** :
-- `x_whatsapp_validation_sent` (Boolean) : Validation WhatsApp envoyée
-- `x_whatsapp_validation_sent_date` (Datetime) : Date envoi validation
-- `x_whatsapp_validated` (Boolean) : Validée via WhatsApp
-- `x_whatsapp_rejected` (Boolean) : Rejetée via WhatsApp
-- `x_whatsapp_creation_sent` (Boolean) : Message de création envoyé
-- `x_whatsapp_creation_sent_date` (Datetime) : Date envoi message création
+- `x_whatsapp_creation_sent` : Message création envoyé
+- `x_whatsapp_creation_sent_date` : Date envoi création
+- `x_whatsapp_details_sent` : Détails envoyés
+- `x_whatsapp_state_sent` : Message état envoyé
+- `x_whatsapp_validated` : Validée via WhatsApp
+- `x_whatsapp_rejected` : Rejetée via WhatsApp
+- `x_show_whatsapp_button` : Afficher bouton (calculé)
+- `x_has_phone` : A un téléphone (calculé)
 
 **Méthodes principales** :
-- `create(vals_list)` : Surcharge pour envoyer un message à la création
-- `_send_whatsapp_creation_notification()` : Envoie la notification de création
-- `action_send_order_validation_whatsapp()` : Envoie les détails pour validation
+- `_send_whatsapp_creation_notification()` : Notification création
+- `_send_whatsapp_state_notification()` : Notification changement état
+- `action_send_order_details_whatsapp()` : Envoie détails commande
+
+### 8. Extension account.move
+
+**Champs ajoutés** :
+- `x_whatsapp_invoice_sent` : Facture envoyée
+- `x_whatsapp_invoice_sent_date` : Date envoi facture
+- `x_whatsapp_residual_sent` : Message résiduel envoyé
+- `x_whatsapp_unpaid_reminder_sent` : Rappel impayé envoyé
+- `x_show_whatsapp_button` : Afficher bouton (calculé)
+
+**Méthodes principales** :
+- `_send_whatsapp_invoice()` : Envoie facture PDF
+- `_send_whatsapp_residual_notification()` : Notification montant résiduel
+- `_send_unpaid_invoice_reminder()` : Rappel facture impayée
+- `action_send_invoice_details_whatsapp()` : Envoie détails facture
 
 ---
 
-## API et méthodes principales
+## Fonctionnalités principales
 
-### Configuration WhatsApp
+### 1. Envoi de messages
 
-#### `whatsapp.config.send_text_message()`
+#### Messages texte simples
 
-**Signature** :
 ```python
-def send_text_message(self, to_phone, body_text, preview_url=False)
-```
-
-**Description** : Envoie un message texte simple.
-
-**Paramètres** :
-- `to_phone` (str) : Numéro de téléphone destinataire (format international)
-- `body_text` (str) : Texte du message
-- `preview_url` (bool) : Activer la prévisualisation des liens
-
-**Retour** :
-```python
-{
-    'success': bool,
-    'message_id': str,  # ID WhatsApp
-    'message_record': recordset,  # Enregistrement whatsapp.message
-    'error': str or None
-}
-```
-
-**Exemple** :
-```python
-config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-result = config.send_text_message(
-    to_phone="+33612345678",
-    body_text="Bonjour, votre commande est prête !"
-)
-```
-
-#### `whatsapp.config.send_template_message()`
-
-**Signature** :
-```python
-def send_template_message(self, to_phone, template_name, language_code, components=None)
-```
-
-**Description** : Envoie un message via un template WhatsApp approuvé.
-
-**Paramètres** :
-- `to_phone` (str) : Numéro de téléphone destinataire
-- `template_name` (str) : Nom du template (tel que défini dans Meta)
-- `language_code` (str) : Code langue (ex: "fr")
-- `components` (list) : Liste des composants avec paramètres
-
-**Format des components** :
-```python
-components = [
-    {
-        "type": "body",
-        "parameters": [
-            {"type": "text", "text": "Valeur 1"},
-            {"type": "text", "text": "Valeur 2"}
-        ]
-    },
-    {
-        "type": "header",
-        "parameters": [
-            {
-                "type": "image",
-                "image": {"link": "https://example.com/image.jpg"}
-            }
-        ]
-    }
-]
-```
-
-**Exemple** :
-```python
-config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-result = config.send_template_message(
-    to_phone="+33612345678",
-    template_name="order_confirmation",
-    language_code="fr",
-    components=[
-        {
-            "type": "body",
-            "parameters": [
-                {"type": "text", "text": "Jean Dupont"},
-                {"type": "text", "text": "SO001"}
-            ]
-        }
-    ]
-)
-```
-
-#### `whatsapp.config.send_interactive_message()`
-
-**Signature** :
-```python
-def send_interactive_message(self, to_phone, body_text, buttons=None)
-```
-
-**Description** : Envoie un message avec boutons interactifs.
-
-**Paramètres** :
-- `to_phone` (str) : Numéro de téléphone destinataire
-- `body_text` (str) : Texte du message
-- `buttons` (list) : Liste des boutons
-
-**Format des buttons** :
-```python
-buttons = [
-    {
-        "type": "reply",
-        "reply": {
-            "id": "btn_yes",
-            "title": "Oui"
-        }
-    },
-    {
-        "type": "reply",
-        "reply": {
-            "id": "btn_no",
-            "title": "Non"
-        }
-    }
-]
-```
-
-**Exemple** :
-```python
-config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-result = config.send_interactive_message(
-    to_phone="+33612345678",
-    body_text="Souhaitez-vous valider cette commande ?",
-    buttons=[
-        {"type": "reply", "reply": {"id": "btn_validate", "title": "Valider"}},
-        {"type": "reply", "reply": {"id": "btn_reject", "title": "Rejeter"}}
-    ]
-)
-```
-
-#### `whatsapp.config.send_text_to_partner()`
-
-**Signature** :
-```python
-@api.model
-def send_text_to_partner(self, partner_id, message_text, preview_url=False, config_id=None)
-```
-
-**Description** : Fonction utilitaire pour envoyer un message texte à un partenaire. Peut être appelée depuis n'importe quel module.
-
-**Paramètres** :
-- `partner_id` (int ou recordset) : ID ou objet partenaire
-- `message_text` (str) : Texte du message
-- `preview_url` (bool) : Prévisualisation des liens
-- `config_id` (int, optionnel) : ID de la configuration (utilise la config active par défaut)
-
-**Retour** : Même format que `send_text_message()`
-
-**Exemple** :
-```python
-config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-result = config.send_text_to_partner(
+whatsapp_config = self.env['whatsapp.config'].get_active_config()
+result = whatsapp_config.send_text_to_partner(
     partner_id=partner.id,
     message_text="Bonjour, votre commande est prête !"
 )
 ```
 
-### Actions de boutons
-
-#### `whatsapp.button.action.execute_action()`
-
-**Signature** :
-```python
-def execute_action(self, message, contact=None)
-```
-
-**Description** : Exécute l'action définie pour un bouton.
-
-**Paramètres** :
-- `message` (recordset) : Message WhatsApp qui a déclenché l'action
-- `contact` (recordset, optionnel) : Contact associé
-
-**Retour** :
-```python
-{
-    'success': bool,
-    'message': str
-}
-```
-
-**Types d'actions** :
-- `send_message` : Envoie un message automatique
-- `update_contact` : Met à jour un champ du contact
-- `create_ticket` : Crée un ticket (nécessite module helpdesk)
-- `update_status` : Met à jour le statut
-- `custom_python` : Exécute du code Python personnalisé
-
-**Exemple de code Python personnalisé** :
-```python
-# Variables disponibles : env, message, contact, button_id, self
-if contact:
-    # Mettre à jour le contact
-    contact.write({'x_whatsapp_status': 'validated'})
-
-# Chercher la commande associée
-order = env['sale.order'].search([
-    ('partner_id', '=', contact.id)
-], limit=1)
-
-if order:
-    order.write({'state': 'sale'})
-```
-
----
-
-## Contrôleurs et Webhooks
-
-### Webhook Controller
-
-**Fichier** : `controllers/whatsapp_webhook.py`
-
-**Route** : `/whatsapp/webhook/<int:config_id>`
-
-**Méthode** : POST
-
-**Description** : Reçoit les webhooks de WhatsApp (messages entrants, statuts, interactions).
-
-**Fonctionnalités** :
-1. **Vérification du webhook** (GET) : Meta vérifie l'URL avec un challenge
-2. **Réception des messages** (POST) : Traite les messages entrants
-3. **Statuts de messages** : Met à jour les statuts (sent, delivered, read, failed)
-4. **Interactions** : Traite les clics sur les boutons
-
-**Format des données reçues** :
-```json
-{
-    "object": "whatsapp_business_account",
-    "entry": [{
-        "id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
-        "changes": [{
-            "value": {
-                "messaging_product": "whatsapp",
-                "metadata": {
-                    "display_phone_number": "...",
-                    "phone_number_id": "..."
-                },
-                "contacts": [...],
-                "messages": [...],
-                "statuses": [...]
-            },
-            "field": "messages"
-        }]
-    }]
-}
-```
-
-**Traitement** :
-- Crée des enregistrements `whatsapp.message` pour les messages entrants
-- Met à jour les statuts des messages sortants
-- Traite les interactions (boutons) et exécute les actions associées
-- Crée ou met à jour les conversations
-
----
-
-## Vues et interfaces
-
-### Menus principaux
-
-1. **WhatsApp > Configuration**
-   - Configuration de l'API
-   - Vérification des paramètres
-   - Synchronisation des templates
-
-2. **WhatsApp > Envoyer un message**
-   - Wizard pour envoyer un message texte
-
-3. **WhatsApp > Envoyer un template**
-   - Wizard pour envoyer un template
-
-4. **WhatsApp > Envoyer message au partenaire**
-   - Wizard pour envoyer à un partenaire
-
-5. **WhatsApp > Conversations**
-   - Liste des conversations
-   - Détails des messages
-
-6. **WhatsApp > Messages**
-   - Journal complet des messages
-   - Détails et statuts
-
-7. **WhatsApp > Templates**
-   - Templates synchronisés
-   - Statuts et détails
-
-8. **WhatsApp > Actions de boutons**
-   - Configuration des actions
-   - Gestion des interactions
-
-### Vues personnalisées
-
-#### Formulaire partenaire (`res.partner`)
-- Bouton "Envoyer WhatsApp" dans le header
-- Visible uniquement si le partenaire a un numéro de téléphone
-
-#### Formulaire commande (`sale.order`)
-- Bouton "Envoyer validation WhatsApp" (via action serveur)
-- Champs de suivi WhatsApp
-
----
-
-## Sécurité
-
-### Droits d'accès
-
-**Fichier** : `security/ir.model.access.csv`
-
-**Groupes** :
-- `base.group_user` : Accès complet (lecture, écriture, création, suppression) pour tous les modèles
-
-**Modèles protégés** :
-- `whatsapp.config`
-- `whatsapp.message`
-- `whatsapp.conversation`
-- `whatsapp.template`
-- `whatsapp.send.message`
-- `whatsapp.send.template`
-- `whatsapp.send.interactive`
-- `whatsapp.send.partner.message`
-- `whatsapp.button.action`
-
-### Webhook Security
-
-- **Token de vérification** : `webhook_verify_token` pour valider les requêtes Meta
-- **HTTPS requis** : Les webhooks doivent être en HTTPS
-- **Validation des signatures** : Meta signe les requêtes (à implémenter si nécessaire)
-
----
-
-## Intégrations
-
-### 1. Intégration avec `sale.order`
-
-**Fonctionnalités** :
-- Envoi automatique de notification à la création d'une commande
-- Envoi de validation avec boutons interactifs
-- Suivi des validations/rejets via WhatsApp
-
-**Champs ajoutés** :
-- `x_whatsapp_creation_sent` : Message de création envoyé
-- `x_whatsapp_validation_sent` : Validation envoyée
-- `x_whatsapp_validated` : Validée via WhatsApp
-- `x_whatsapp_rejected` : Rejetée via WhatsApp
-
-**Méthodes** :
-- `create()` : Surcharge pour notification automatique
-- `_send_whatsapp_creation_notification()` : Envoie la notification
-- `action_send_order_validation_whatsapp()` : Envoie pour validation
-
-### 2. Intégration avec `res.partner`
-
-**Fonctionnalités** :
-- Bouton WhatsApp dans le formulaire partenaire
-- Envoi direct depuis le partenaire
-
-**Vue héritée** : `base.view_partner_form`
-
-### 3. Utilisation depuis d'autres modules
-
-**Fonction utilitaire** :
-```python
-config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-if config:
-    result = config.send_text_to_partner(
-        partner_id=partner.id,
-        message_text="Votre message ici"
-    )
-```
-
----
-
-## Configuration
-
-### Configuration initiale
-
-1. **Créer une configuration WhatsApp** :
-   - Aller dans **WhatsApp > Configuration**
-   - Créer une nouvelle configuration
-   - Remplir :
-     - Nom
-     - Phone Number ID (depuis Meta)
-     - Access Token (depuis Meta)
-     - Webhook Verify Token (générer un token sécurisé)
-     - Webhook URL (ex: `https://votre-domaine.com/whatsapp/webhook/1`)
-
-2. **Configurer le webhook dans Meta** :
-   - Aller dans Meta Business Suite
-   - WhatsApp Manager → Configuration → Webhooks
-   - Ajouter l'URL du webhook
-   - Ajouter le token de vérification
-   - S'abonner aux événements : `messages`, `message_status`
-
-3. **Synchroniser les templates** :
-   - Dans Odoo : **WhatsApp > Configuration**
-   - Cliquer sur **"Synchroniser les templates"**
-
-### Configuration des actions de boutons
-
-1. **Créer une action** :
-   - Aller dans **WhatsApp > Actions de boutons**
-   - Créer une nouvelle action
-   - Définir :
-     - Nom
-     - ID du bouton (doit correspondre à l'ID dans le template)
-     - Type d'action
-     - Paramètres selon le type
-
-2. **Exemple d'action** :
-   - Nom : "Valider commande"
-   - ID bouton : `btn_validate_order`
-   - Type : `custom_python`
-   - Code Python : (voir exemples dans `data/whatsapp_order_validation_actions.xml`)
-
----
-
-## Exemples d'utilisation
-
-### Exemple 1 : Envoi simple depuis un autre module
+#### Messages avec images
 
 ```python
-from odoo import models, fields, api
-
-class MonModele(models.Model):
-    _name = 'mon.modele'
-    
-    def action_envoyer_notification(self):
-        config = self.env['whatsapp.config'].search([
-            ('is_active', '=', True)
-        ], limit=1)
-        
-        if config:
-            result = config.send_text_to_partner(
-                partner_id=self.partner_id.id,
-                message_text=f"Bonjour {self.partner_id.name}, votre demande est prête !"
-            )
-            
-            if result.get('success'):
-                # Succès
-                pass
-            else:
-                # Erreur
-                _logger.error("Erreur envoi WhatsApp: %s", result.get('error'))
+result = whatsapp_config.send_image_message(
+    to_phone="+221781234567",
+    image_link="https://example.com/image.jpg",
+    caption="Photo du produit"
+)
 ```
 
-### Exemple 2 : Envoi de template avec paramètres
+#### Messages avec documents (PDF)
 
 ```python
-config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+result = whatsapp_config.send_document_message(
+    to_phone="+221781234567",
+    document_link="https://example.com/invoice.pdf",
+    filename="facture_001.pdf",
+    caption="Votre facture"
+)
+```
 
+### 2. Templates WhatsApp
+
+Les templates doivent être approuvés dans Meta Business Suite.
+
+```python
 components = [
     {
         "type": "body",
         "parameters": [
-            {"type": "text", "text": "Jean Dupont"},
-            {"type": "text", "text": "SO001"},
-            {"type": "text", "text": "15000"}
+            {"type": "text", "text": "John Doe"},
+            {"type": "text", "text": "10000"}
         ]
     }
 ]
 
-result = config.send_template_message(
-    to_phone="+33612345678",
+result = whatsapp_config.send_template_message(
+    to_phone="+221781234567",
     template_name="order_confirmation",
     language_code="fr",
     components=components
 )
 ```
 
-### Exemple 3 : Message interactif avec boutons
+### 3. Messages interactifs
+
+Messages avec boutons (1 à 3 boutons maximum).
 
 ```python
-config = env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-
 buttons = [
     {
         "type": "reply",
         "reply": {
-            "id": "btn_yes",
-            "title": "Oui"
+            "id": "btn_validate_order_123",
+            "title": "Valider"
         }
     },
     {
         "type": "reply",
         "reply": {
-            "id": "btn_no",
-            "title": "Non"
+            "id": "btn_cancel_order_123",
+            "title": "Annuler"
         }
     }
 ]
 
-result = config.send_interactive_message(
-    to_phone="+33612345678",
-    body_text="Souhaitez-vous confirmer cette commande ?",
+result = whatsapp_config.send_interactive_message(
+    to_phone="+221781234567",
+    body_text="Voulez-vous valider cette commande ?",
     buttons=buttons
 )
 ```
 
-### Exemple 4 : Action de bouton personnalisée
+### 4. Scénarios interactifs
 
+Création de conversations multi-étapes avec réponses automatiques.
+
+**Exemple** : Validation de commande
+1. Message initial : "Votre commande est prête. Valider ?"
+2. Bouton "Valider" → Message : "Commande validée !"
+3. Bouton "Annuler" → Message : "Commande annulée."
+
+### 5. Actions personnalisées sur boutons
+
+Exécution de code Python lors du clic sur un bouton.
+
+**Variables disponibles dans le code Python** :
+- `env` : Environnement Odoo
+- `message` : Message WhatsApp reçu
+- `contact` : Partenaire associé
+- `button_id` : ID du bouton cliqué
+- `_logger` : Logger Python
+- `ValidationError` : Exception Odoo
+
+**Exemple** :
 ```python
-# Dans whatsapp.button.action, type = custom_python
-# Code Python :
-
-# Variables disponibles : env, message, contact, button_id, self
-
-# Chercher la commande associée
-if message.content:
-    # Le contenu peut contenir l'ID de la commande
-    order_number = message.content.split()[-1]  # Exemple
-    order = env['sale.order'].search([
-        ('name', '=', order_number)
-    ], limit=1)
-    
-    if order and button_id == 'btn_validate_order':
-        order.write({
-            'state': 'sale',
-            'x_whatsapp_validated': True
-        })
-        
-        # Envoyer une confirmation
-        config = env['whatsapp.config'].search([
-            ('is_active', '=', True)
-        ], limit=1)
-        
-        if config and contact:
-            config.send_text_to_partner(
-                partner_id=contact.id,
-                message_text="Votre commande a été validée avec succès !"
-            )
+# Dans whatsapp.button.action
+order = env['sale.order'].search([...], limit=1)
+if order:
+    order.write({'state': 'sale'})
+    message.config_id.send_text_to_partner(
+        partner_id=contact.id,
+        message_text="Commande validée !"
+    )
 ```
 
-### Exemple 5 : Notification automatique à la création
+### 6. Envoi automatique
 
-Le module envoie automatiquement une notification à la création d'une commande `sale.order`. Le message inclut :
-- Nom du client
-- Numéro de commande
-- Type de commande (si disponible)
-- Montant
-- Type de crédit (si disponible)
-- Message personnalisé selon le type
+#### Notifications de commande
 
----
+- **Création** : Message avec boutons "Valider", "Annuler", "Voir détail"
+- **Changement d'état** : Notification lors de la confirmation
+- **Détails** : Envoi des détails avec produits et montants
 
-## Gestion des erreurs
+#### Notifications de facture
 
-### Codes d'erreur WhatsApp courants
+- **Validation** : Envoi automatique du PDF facture
+- **Montant résiduel** : Notification lors du changement
+- **Rappels impayés** : Envoi automatique après X jours (configurable)
 
-- **131026** : Fenêtre de 24h expirée (utiliser un template)
-- **131047** : Numéro de téléphone invalide
-- **131048** : Template non trouvé
-- **131051** : Paramètres de template invalides
+### 7. Rappels automatiques (Cron)
 
-### Gestion dans le code
+Tâche planifiée quotidienne pour envoyer des rappels de factures impayées.
 
-Toutes les méthodes retournent un dictionnaire avec :
-- `success` : Booléen indiquant le succès
-- `error` : Message d'erreur si échec
-- `message_id` : ID du message si succès
-- `message_record` : Enregistrement créé
-
-Les erreurs sont également loggées dans les logs Odoo.
+**Configuration** :
+- `auto_send_unpaid_invoices` : Activer/désactiver
+- `unpaid_invoice_days` : Nombre de jours avant rappel
 
 ---
 
-## Limitations et bonnes pratiques
+## Intégration API WhatsApp
 
-### Limitations
+### Endpoint utilisé
 
-1. **Fenêtre de 24h** : Les messages texte simples ne peuvent être envoyés que si le client a écrit dans les 24h
-2. **Templates** : Doivent être créés et approuvés dans Meta Business Suite
-3. **Rate limiting** : WhatsApp limite le nombre de messages par seconde
-4. **Webhook HTTPS** : Les webhooks doivent être en HTTPS
+```
+POST https://graph.facebook.com/v21.0/{phone_number_id}/messages
+```
+
+### Headers requis
+
+```python
+{
+    "Authorization": "Bearer {access_token}",
+    "Content-Type": "application/json"
+}
+```
+
+### Format des requêtes
+
+#### Message texte
+
+```json
+{
+    "messaging_product": "whatsapp",
+    "recipient_type": "individual",
+    "to": "+221781234567",
+    "type": "text",
+    "text": {
+        "body": "Message texte"
+    }
+}
+```
+
+#### Message interactif
+
+```json
+{
+    "messaging_product": "whatsapp",
+    "recipient_type": "individual",
+    "to": "+221781234567",
+    "type": "interactive",
+    "interactive": {
+        "type": "button",
+        "body": {
+            "text": "Message avec boutons"
+        },
+        "action": {
+            "buttons": [
+                {
+                    "type": "reply",
+                    "reply": {
+                        "id": "btn_yes",
+                        "title": "Oui"
+                    }
+                }
+            ]
+        }
+    }
+}
+```
+
+#### Template
+
+```json
+{
+    "messaging_product": "whatsapp",
+    "recipient_type": "individual",
+    "to": "+221781234567",
+    "type": "template",
+    "template": {
+        "name": "order_confirmation",
+        "language": {
+            "code": "fr"
+        },
+        "components": [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": "John Doe"}
+                ]
+            }
+        ]
+    }
+}
+```
+
+### Gestion des erreurs
+
+Le module gère automatiquement les erreurs courantes :
+
+- **131047** : Numéro non WhatsApp
+- **131026** : Fenêtre 24h expirée (utiliser template)
+- **131031** : Numéro non autorisé (mode test)
+- **190** : Token invalide
+- **131053** : Erreur upload média (URL localhost)
+
+---
+
+## Webhooks
+
+### Configuration
+
+1. **URL du webhook** : `https://votre-domaine.com/whatsapp/webhook`
+2. **Token de vérification** : Défini dans la configuration
+3. **Champs à écouter** : `messages`, `message_status`
+
+### Validation (GET)
+
+Meta envoie une requête GET pour valider le webhook :
+
+```
+GET /whatsapp/webhook?hub.mode=subscribe&hub.verify_token=TOKEN&hub.challenge=CHALLENGE
+```
+
+Le contrôleur retourne le `hub.challenge` si le token est valide.
+
+### Réception (POST)
+
+Meta envoie les événements en POST :
+
+```json
+{
+    "object": "whatsapp_business_account",
+    "entry": [{
+        "id": "...",
+        "changes": [{
+            "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {...},
+                "contacts": [...],
+                "messages": [...],
+                "statuses": [...]
+            }
+        }]
+    }]
+}
+```
+
+### Validation de signature (SHA256)
+
+Le webhook valide la signature SHA256 pour sécuriser les requêtes :
+
+```python
+import hmac
+import hashlib
+
+signature = request.headers.get('X-Hub-Signature-256', '').replace('sha256=', '')
+expected_signature = hmac.new(
+    app_secret.encode(),
+    request.data,
+    hashlib.sha256
+).hexdigest()
+
+if not hmac.compare_digest(signature, expected_signature):
+    return "Invalid signature", 403
+```
+
+### Types d'événements traités
+
+1. **Messages entrants** :
+   - Texte
+   - Images
+   - Documents
+   - Messages interactifs (boutons)
+   - Templates
+
+2. **Statuts de messages** :
+   - `sent` : Envoyé
+   - `delivered` : Livré
+   - `read` : Lu
+   - `failed` : Échec
+
+---
+
+## Configuration
+
+### 1. Configuration WhatsApp
+
+**Menu** : `WhatsApp > Configuration`
+
+**Paramètres requis** :
+- **Nom** : Nom de la configuration
+- **Phone Number ID** : ID du numéro (Meta Business Suite)
+- **Access Token** : Token d'accès API
+- **Facebook App Secret** : Secret de l'application (validation webhook)
+- **Verify Token** : Token de vérification webhook
+
+**Paramètres optionnels** :
+- **Envoi automatique commandes** : Activer notifications création
+- **Envoi automatique factures impayées** : Activer rappels
+- **Nombre de jours avant rappel** : Délai pour rappels
+- **Affichage boutons** : Contrôler visibilité boutons WhatsApp
+
+### 2. Configuration webhook Meta
+
+1. Aller dans **Meta Business Suite** > **WhatsApp** > **Configuration**
+2. Configurer l'URL : `https://votre-domaine.com/whatsapp/webhook`
+3. Définir le **Verify Token** (identique à la config Odoo)
+4. Sélectionner les champs : `messages`, `message_status`
+
+### 3. Configuration Odoo
+
+**Paramètre système** : `web.base.url`
+
+⚠️ **Important** : Pour l'envoi de documents, l'URL doit être publique (pas `localhost`).
+
+---
+
+## Utilisation
+
+### Envoi manuel de message
+
+1. **Menu** : `WhatsApp > Envoyer un message WhatsApp`
+2. Saisir le numéro ou sélectionner un partenaire
+3. Saisir le message
+4. Cliquer sur "Envoyer"
+
+### Envoi de template
+
+1. **Menu** : `WhatsApp > Envoyer un template WhatsApp`
+2. Sélectionner le template
+3. Saisir les paramètres (JSON ou via interface)
+4. Cliquer sur "Envoyer"
+
+### Envoi de message interactif
+
+1. **Menu** : `WhatsApp > Envoyer un message avec boutons`
+2. Sélectionner un scénario ou créer les boutons manuellement
+3. Saisir le message
+4. Cliquer sur "Envoyer"
+
+### Création de scénario interactif
+
+1. **Menu** : `WhatsApp > Scénarios interactifs`
+2. Créer un nouveau scénario
+3. Définir le message initial
+4. Configurer les boutons (1 à 3)
+5. Définir les réponses automatiques
+6. Optionnel : Lier à un scénario suivant
+
+### Création d'action de bouton
+
+1. **Menu** : `WhatsApp > Actions de boutons`
+2. Créer une nouvelle action
+3. Définir l'ID du bouton (ex: `btn_validate_order`)
+4. Choisir le type d'action :
+   - **Envoyer message** : Message simple
+   - **Code Python** : Code personnalisé
+5. Saisir le code Python si nécessaire
+
+### Consultation des messages
+
+1. **Menu** : `WhatsApp > Messages`
+2. Filtrer par direction, type, statut
+3. Cliquer sur un message pour voir les détails
+4. Utiliser le bouton "Répondre" pour répondre
+
+### Consultation des conversations
+
+1. **Menu** : `WhatsApp > Conversations`
+2. Voir la liste des conversations
+3. Cliquer pour voir les messages
+
+---
+
+## Exemples de code
+
+### Exemple 1 : Envoi notification commande
+
+```python
+def _send_order_notification(self):
+    self.ensure_one()
+    
+    whatsapp_config = self.env['whatsapp.config'].get_active_config()
+    if not whatsapp_config:
+        return
+    
+    phone = self.partner_id.phone or self.partner_id.mobile
+    if not phone:
+        return
+    
+    message = f"Bonjour {self.partner_id.name},\n\n"
+    message += f"Votre commande {self.name} a été créée.\n\n"
+    message += f"Montant : {self.amount_total:.0f} F CFA"
+    
+    buttons = [
+        {
+            "type": "reply",
+            "reply": {
+                "id": f"btn_validate_order_{self.id}",
+                "title": "Valider"
+            }
+        }
+    ]
+    
+    result = whatsapp_config.send_interactive_message(
+        to_phone=phone,
+        body_text=message,
+        buttons=buttons
+    )
+```
+
+### Exemple 2 : Envoi facture PDF
+
+```python
+def _send_invoice_pdf(self):
+    self.ensure_one()
+    
+    # Générer le PDF
+    report = self.env['ir.actions.report']._get_report_from_name('account.report_invoice')
+    pdf_content, _ = report._render_qweb_pdf(self.id)
+    
+    # Créer attachment public
+    attachment = self.env['ir.attachment'].create({
+        'name': f"{self.name}.pdf",
+        'type': 'binary',
+        'datas': base64.b64encode(pdf_content),
+        'res_model': 'account.move',
+        'res_id': self.id,
+        'public': True,
+    })
+    
+    # Générer URL publique
+    base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+    pdf_url = f"{base_url}/web/content/{attachment.id}?download=true"
+    
+    # Envoyer
+    whatsapp_config = self.env['whatsapp.config'].get_active_config()
+    result = whatsapp_config.send_document_message(
+        to_phone=self.partner_id.phone,
+        document_link=pdf_url,
+        filename=f"{self.name}.pdf",
+        caption=f"Votre facture {self.name}"
+    )
+```
+
+### Exemple 3 : Action personnalisée sur bouton
+
+```python
+# Dans whatsapp.button.action (python_code)
+order_id = int(button_id.replace('btn_validate_order_', ''))
+order = env['sale.order'].browse(order_id)
+
+if order.exists():
+    order.write({'state': 'sale'})
+    
+    response_msg = f"Commande {order.name} validée avec succès !"
+    message.config_id.send_text_to_partner(
+        partner_id=order.partner_id.id,
+        message_text=response_msg
+    )
+    
+    _logger.info("Commande %s validée via WhatsApp", order.name)
+```
+
+### Exemple 4 : Scénario multi-étapes
+
+```python
+# Scénario 1 : Demande validation
+scenario_1 = {
+    'name': 'Validation commande',
+    'initial_message': 'Voulez-vous valider cette commande ?',
+    'button_1_id': 'btn_yes',
+    'button_1_title': 'Oui',
+    'button_1_next_scenario_id': scenario_2.id,  # Lien vers scénario 2
+    'button_2_id': 'btn_no',
+    'button_2_title': 'Non',
+}
+
+# Scénario 2 : Confirmation
+scenario_2 = {
+    'name': 'Confirmation paiement',
+    'initial_message': 'Choisissez votre méthode de paiement',
+    'button_1_id': 'btn_pay_wave',
+    'button_1_title': 'Payer avec Wave',
+    'button_2_id': 'btn_pay_orange',
+    'button_2_title': 'Payer avec Orange Money',
+}
+```
+
+---
+
+## Dépannage
+
+### Problèmes courants
+
+#### 1. Messages non envoyés
+
+**Symptômes** : Aucun message envoyé, pas d'erreur visible.
+
+**Solutions** :
+- Vérifier que la configuration est active (`is_active = True`)
+- Vérifier le `phone_number_id` et `access_token`
+- Vérifier les logs Odoo pour les erreurs API
+- Vérifier que le numéro est autorisé (mode test)
+
+#### 2. Erreur 131026 (Fenêtre 24h)
+
+**Symptôme** : "Fenêtre de 24h expirée"
+
+**Solution** : Utiliser un template WhatsApp au lieu d'un message texte.
+
+#### 3. Erreur 131053 (Upload média)
+
+**Symptôme** : "Media upload error", "localhost resolved address is private"
+
+**Solution** :
+- Configurer `web.base.url` avec une URL publique
+- Le module détecte automatiquement localhost et utilise un bouton de téléchargement
+
+#### 4. Webhook non reçu
+
+**Symptômes** : Messages entrants non enregistrés.
+
+**Solutions** :
+- Vérifier l'URL du webhook dans Meta Business Suite
+- Vérifier le `verify_token`
+- Vérifier que le serveur est accessible depuis Internet
+- Vérifier les logs du contrôleur webhook
+
+#### 5. Signature webhook invalide
+
+**Symptôme** : Erreur 403 sur webhook.
+
+**Solution** : Vérifier que `facebook_app_secret` est correct dans la configuration.
+
+#### 6. PDF non envoyé
+
+**Symptômes** : Message texte envoyé au lieu du PDF.
+
+**Solutions** :
+- Vérifier que le rapport de facture existe
+- Vérifier les permissions sur `ir.attachment`
+- Vérifier que `public=True` sur l'attachment
+- Vérifier l'URL générée (pas localhost)
+
+### Logs utiles
+
+Les logs Odoo contiennent des informations détaillées :
+
+```python
+# Rechercher dans les logs
+grep "WhatsApp" /var/log/odoo/odoo.log
+grep "whatsapp" /var/log/odoo/odoo.log
+```
+
+**Niveaux de log** :
+- `INFO` : Opérations normales
+- `WARNING` : Problèmes non bloquants
+- `ERROR` : Erreurs nécessitant attention
+
+### Tests
+
+#### Test d'envoi simple
+
+```python
+# Dans la console Odoo
+config = env['whatsapp.config'].get_active_config()
+result = config.send_text_message(
+    to_phone="+221781234567",
+    message_text="Test message"
+)
+print(result)
+```
+
+#### Test webhook
+
+```bash
+# Simuler un webhook
+curl -X POST https://votre-domaine.com/whatsapp/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Hub-Signature-256: sha256=..." \
+  -d '{"object":"whatsapp_business_account","entry":[...]}'
+```
+
+---
+
+## Sécurité
 
 ### Bonnes pratiques
 
-1. **Utiliser des templates** pour les messages hors fenêtre de 24h
-2. **Valider les numéros** avant l'envoi
-3. **Gérer les erreurs** gracieusement
-4. **Logger les actions** pour le débogage
-5. **Tester avec des numéros de test** avant la production
-6. **Respecter les politiques WhatsApp** (spam, contenu, etc.)
+1. **Tokens** : Ne jamais exposer les tokens dans les logs
+2. **Webhook** : Toujours valider la signature SHA256
+3. **Permissions** : Limiter les droits d'accès aux modèles
+4. **URLs publiques** : Utiliser HTTPS pour les URLs publiques
+5. **Validation** : Valider tous les inputs utilisateur
+
+### Droits d'accès
+
+Le fichier `security/ir.model.access.csv` définit les droits :
+- **Administrateur** : Accès complet
+- **Utilisateur** : Accès lecture/écriture limité
+- **Public** : Aucun accès
 
 ---
 
-## Support et maintenance
+## Évolutions futures
 
-### Logs
+### Améliorations prévues
 
-Les logs sont disponibles dans :
-- **Paramètres > Technique > Logs**
-- Rechercher : `whatsapp` ou `api_whatsapp`
-
-### Débogage
-
-1. Vérifier la configuration active
-2. Vérifier les logs Odoo
-3. Vérifier les logs Meta Business Suite
-4. Tester avec l'outil "Vérifier les paramètres"
-5. Vérifier le statut des templates
-
-### Mise à jour
-
-Pour mettre à jour le module :
-1. Sauvegarder la base de données
-2. Mettre à jour le module dans Odoo
-3. Vérifier les migrations de données
-4. Tester les fonctionnalités
+- [ ] Support des messages vocaux
+- [ ] Support des listes interactives
+- [ ] Support des catalogues produits
+- [ ] Interface de chat en temps réel
+- [ ] Statistiques et analytics
+- [ ] Support multi-comptes WhatsApp
+- [ ] Intégration avec d'autres modules Odoo
 
 ---
 
-## Conclusion
+## Support
 
-Ce module fournit une intégration complète de WhatsApp Business Cloud API avec Odoo, permettant :
-- L'envoi et la réception de messages
-- La gestion des templates
-- Les interactions avec boutons
-- L'intégration avec les modules Odoo existants
-- Une API simple et réutilisable
+### Contact
 
-Pour plus d'informations, consultez les guides spécifiques dans le répertoire du module.
+- **Auteur** : Al Hussein
+- **Module** : WhatsApp b-2-b
+- **Version** : 16.0.1.0.0
+
+### Ressources
+
+- [Documentation Meta WhatsApp Business API](https://developers.facebook.com/docs/whatsapp)
+- [Documentation Odoo](https://www.odoo.com/documentation/16.0/)
+
+---
+
+**Dernière mise à jour** : 2025-11-20
 

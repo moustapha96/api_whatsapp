@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Action pour envoyer toutes les factures d'un client lorsqu'il envoie un message -->
+<odoo>
+    <!-- Action pour envoyer toutes les factures d'un client -->
+    <record id="action_send_all_invoices" model="whatsapp.button.action">
+        <field name="name">Envoyer toutes les factures</field>
+        <field name="button_id">auto_send_all_invoices</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+import time
+
+_logger.info("=== Début action envoi toutes les factures ===")
+_logger.info("Message phone: %s", message.phone if message else 'N/A')
+
+# Trouve le partenaire par numéro de téléphone
+partner = None
+phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '').replace('(', '').replace(')', '')
+if not phone_clean.startswith('+'):
+    phone_clean = '+' + phone_clean.lstrip('+')
+
+_logger.info("Recherche du partenaire avec le numéro: %s", phone_clean)
+
+# Cherche le contact par numéro (phone ou mobile)
+partner = env['res.partner'].search([
+    '|',
+    ('phone', 'ilike', phone_clean),
+    ('mobile', 'ilike', phone_clean)
+], limit=1)
+
+# Si pas trouvé, cherche avec des variantes (sans le +)
+if not partner and phone_clean.startswith('+'):
+    phone_without_plus = phone_clean[1:]
+    partner = env['res.partner'].search([
+        '|',
+        ('phone', 'ilike', phone_without_plus),
+        ('mobile', 'ilike', phone_without_plus)
+    ], limit=1)
+
+# Si pas trouvé, utilise le contact du message s'il existe
+if not partner and message.contact_id:
+    partner = message.contact_id
+    _logger.info("Utilisation du contact du message: %s", partner.name)
+
+if partner:
+    _logger.info("✅ Partenaire trouvé: %s (ID: %s)", partner.name, partner.id)
+    
+    # Vérifie si le message contient des mots-clés pour déclencher l'envoi
+    # Mots-clés: facture, factures, mes factures, liste factures, voir mes facture, etc.
+    message_content = (message.content or '').lower()
+    keywords = ['facture', 'factures', 'mes factures', 'liste factures', 'mes fact', 'invoice', 'voir mes facture', 'voir mes factures']
+    
+    # Détecte spécifiquement "voir mes facture(s)" pour inclure les liens
+    include_links = 'voir mes facture' in message_content or 'voir mes factures' in message_content
+    should_send = any(keyword in message_content for keyword in keywords)
+    
+    if not should_send:
+        _logger.info("Message ne contient pas de mot-clé pour déclencher l'envoi des factures")
+        message.content = "Message reçu (pas de mot-clé facture détecté)"
+        _logger.info("=== Fin action envoi toutes les factures (non déclenchée) ===")
+    else:
+        _logger.info("✅ Mot-clé détecté, envoi de toutes les factures pour %s", partner.name)
+        
+        try:
+            # Envoie toutes les factures du partenaire
+            # Si "voir mes facture(s)" est détecté, on inclut les liens directement dans les messages
+            result = env['account.move'].send_all_invoices_to_partner_whatsapp(
+                partner_id=partner.id,
+                phone=phone_clean,
+                include_links=include_links
+            )
+            
+            if result.get('success'):
+                count = result.get('count', 0)
+                if count > 0:
+                    _logger.info("✅ %d facture(s) envoyée(s) avec succès pour %s", count, partner.name)
+                    message.content = f"{count} facture(s) envoyée(s) à {partner.name}"
+                else:
+                    _logger.info("Aucune facture à envoyer pour %s", partner.name)
+                    message.content = f"Aucune facture trouvée pour {partner.name}"
+            else:
+                error = result.get('error', 'Erreur inconnue')
+                _logger.warning("❌ Erreur lors de l'envoi des factures pour %s: %s", partner.name, error)
+                message.content = f"Erreur envoi factures: {error}"
+                
+        except Exception as e:
+            _logger.exception("Erreur lors de l'envoi des factures pour %s", partner.name)
+            message.content = f"Erreur: {str(e)}"
+else:
+    _logger.warning("❌ Aucun partenaire trouvé pour le numéro %s", phone_clean)
+    message.content = f"Aucun partenaire trouvé pour {phone_clean}"
+
+_logger.info("=== Fin action envoi toutes les factures ===")
+]]></field>
+        <field name="sequence">5</field>
+        <field name="active">True</field>
+        <field name="description">Envoie automatiquement toutes les factures d'un client lorsqu'il envoie un message contenant 'facture', 'factures' ou 'voir mes facture(s)'. Si 'voir mes facture(s)' est détecté, inclut les liens de téléchargement directement dans chaque message.</field>
+    </record>
+</odoo>
+

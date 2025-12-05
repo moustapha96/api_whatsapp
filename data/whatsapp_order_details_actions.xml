@@ -7,24 +7,27 @@
         <field name="button_id">btn_view_order_details</field>
         <field name="action_type">custom_python</field>
         <field name="python_code"><![CDATA[
-import json
-import logging
-
-_logger = logging.getLogger(__name__)
-
 # Cherche la commande par ID dans le button_id
 order = None
 order_id = None
 
 # Le button_id est au format "btn_view_order_details_123" où 123 est l'ID de la commande
-if button_id.startswith('btn_view_order_details_'):
+if button_id and button_id.startswith('btn_view_order_details_'):
     try:
-        order_id = int(button_id.replace('btn_view_order_details_', ''))
+        order_id_str = button_id.replace('btn_view_order_details_', '')
+        order_id = int(order_id_str)
         order = env['sale.order'].browse(order_id)
         if not order.exists():
             order = None
-    except:
-        pass
+            _logger.warning("Commande avec ID %s n'existe pas (button_id: %s)", order_id, button_id)
+        else:
+            _logger.info("Commande trouvée par ID: %s (button_id: %s)", order.name, button_id)
+    except ValueError as e:
+        _logger.warning("Impossible de convertir l'ID de commande depuis button_id %s: %s", button_id, str(e))
+        order = None
+    except Exception as e:
+        _logger.warning("Erreur lors de la recherche de commande par ID depuis button_id %s: %s", button_id, str(e))
+        order = None
 
 # Si pas trouvé par ID, cherche par numéro de téléphone et commande récente
 if not order:
@@ -77,6 +80,7 @@ if order:
         details_message = f"📋 Détails de la commande {order.name}\n\n"
         
         # Informations générales
+        details_message += f"Client : {order.partner_id.name if order.partner_id else 'N/A'}\n"
         details_message += f"Numéro : {order.name}\n"
         details_message += f"Date : {order.date_order.strftime('%d/%m/%Y') if order.date_order else 'N/A'}\n"
         details_message += f"Montant total : {order.amount_total:.0f} F CFA\n\n"

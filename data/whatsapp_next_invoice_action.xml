@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Action pour envoyer la facture impayée suivante d'un client via le bouton "Facture suivante" -->
+<odoo>
+    <record id="action_send_next_invoice" model="whatsapp.button.action">
+        <field name="name">Envoyer facture suivante</field>
+        <field name="button_id">btn_next_invoice</field>
+        <field name="action_type">custom_python</field>
+        <field name="python_code"><![CDATA[
+import time
+
+_logger.info("=== Début action facture suivante ===")
+_logger.info("Button_id reçu: %s", button_id)
+
+if not button_id or not button_id.startswith('btn_next_invoice_'):
+    _logger.warning("Button_id %s ne correspond pas au format attendu pour 'Facture suivante'", button_id)
+    message.content = "Bouton 'Facture suivante' invalide."
+else:
+    try:
+        # Format attendu : btn_next_invoice_<partner_id>_<index>
+        suffix = button_id.replace('btn_next_invoice_', '')
+        parts = suffix.split('_')
+        if len(parts) != 2:
+            raise ValueError("Format de button_id invalide, attendu 2 parties après le préfixe")
+
+        partner_id_int = int(parts[0])
+        current_index = int(parts[1])
+
+        partner = env['res.partner'].browse(partner_id_int)
+        if not partner.exists():
+            _logger.warning("Partenaire introuvable pour l'ID %s dans 'Facture suivante'", partner_id_int)
+            message.content = "Partenaire introuvable pour la facture suivante."
+        else:
+            _logger.info(
+                "Recherche de la facture impayée index %s pour le partenaire %s (%s)",
+                current_index, partner.name, partner.id
+            )
+
+            # Nettoie le numéro de téléphone
+            phone_clean = message.phone.replace(' ', '').replace('-', '').replace('.', '').replace('(', '').replace(')', '')
+            if not phone_clean.startswith('+'):
+                phone_clean = '+' + phone_clean.lstrip('+')
+
+            whatsapp_config = message.config_id or env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+            if not whatsapp_config:
+                _logger.warning("Aucune configuration WhatsApp active trouvée pour l'action 'Facture suivante'")
+                message.content = "Configuration WhatsApp introuvable."
+            else:
+                phone_clean = whatsapp_config._validate_phone_number(phone_clean)
+
+                # Recherche des factures impayées triées de la plus ancienne à la plus récente
+                invoices = env['account.move'].search([
+                    ('partner_id', '=', partner.id),
+                    ('move_type', 'in', ['out_invoice', 'out_refund']),
+                    ('state', '=', 'posted'),
+                    ('amount_residual', '>', 0),
+                ], order='invoice_date asc, create_date asc')
+
+                if not invoices or current_index >= len(invoices):
+                    _logger.info(
+                        "Aucune facture impayée supplémentaire pour le partenaire %s (index demandé: %s, total: %s)",
+                        partner.name, current_index, len(invoices) if invoices else 0
+                    )
+                    try:
+                        end_msg = f"Bonjour {partner.name},\n\n"
+                        end_msg += "Vous n'avez plus d'autres factures impayées.\n\n"
+                        end_msg += "Équipe CCTS"
+                        whatsapp_config.send_text_to_partner(
+                            partner_id=partner.id,
+                            message_text=end_msg,
+                        )
+                    except Exception as e_msg:
+                        _logger.warning("Erreur lors de l'envoi du message de fin 'plus de factures': %s", str(e_msg))
+
+                    message.content = "Plus de factures impayées."
+                else:
+                    invoice = invoices[current_index]
+                    _logger.info(
+                        "Envoi de la facture impayée suivante %s (index %s) pour le partenaire %s",
+                        invoice.name, current_index, partner.name
+                    )
+
+                    # Prépare éventuellement le bouton pour la facture encore suivante
+                    next_button_id = None
+                    next_index = current_index + 1
+                    if next_index < len(invoices):
+                        next_button_id = f"btn_next_invoice_{partner.id}_{next_index}"
+
+                    # Envoie les détails de la facture avec éventuellement le bouton "Facture suivante"
+                    invoice._send_invoice_details_whatsapp_direct(
+                        whatsapp_config,
+                        phone_clean,
+                        include_links=False,
+                        next_button_id=next_button_id,
+                    )
+
+                    message.content = f"Facture suivante envoyée : {invoice.name}"
+    except Exception as e:
+        _logger.exception("Erreur lors du traitement de 'Facture suivante' pour button_id %s: %s", button_id, str(e))
+        message.content = f"Erreur facture suivante: {str(e)}"
+
+_logger.info("=== Fin action facture suivante ===")
+]]></field>
+        <field name="sequence">6</field>
+        <field name="active">True</field>
+        <field name="description">Envoie la facture impayée suivante d'un client lorsqu'il clique sur le bouton "Facture suivante".</field>
+    </record>
+</odoo>
+
+

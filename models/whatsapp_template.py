@@ -1,5 +1,5 @@
 # whatsapp_business_api/models/whatsapp_template.py
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 import json
 import logging
 
@@ -102,6 +102,47 @@ class WhatsappTemplate(models.Model):
         except json.JSONDecodeError:
             return {}
 
+    def clean_text(self, text):
+        """Nettoie le texte avant l'envoi : corrige mojibake puis normalise en UTF-8."""
+        if not text:
+            return ""
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", "ignore")
+        # Corrige les séquences mojibake courantes (UTF-8 lu en Latin-1)
+        replacements = [
+            ("\ufffd", "?"),
+            ("Ã©", "e"), ("Ã¨", "e"), ("Ãª", "e"), ("Ã«", "e"),
+            ("Ã ", "a"), ("Ã¢", "a"), ("Ã¥", "a"),
+            ("Ã§", "c"),
+            ("Ã¹", "u"), ("Ã»", "u"), ("Ã¼", "u"),
+            ("Ã¯", "i"), ("Ã®", "i"),
+        ]
+        for old, new in replacements:
+            text = text.replace(old, new)
+        # Translittération accents -> ASCII pour éviter rejet Meta (encodage)
+        accent_to_ascii = [
+            ("à", "a"), ("á", "a"), ("â", "a"), ("ã", "a"), ("ä", "a"), ("å", "a"),
+            ("è", "e"), ("é", "e"), ("ê", "e"), ("ë", "e"),
+            ("ì", "i"), ("í", "i"), ("î", "i"), ("ï", "i"),
+            ("ò", "o"), ("ó", "o"), ("ô", "o"), ("õ", "o"), ("ö", "o"),
+            ("ù", "u"), ("ú", "u"), ("û", "u"), ("ü", "u"),
+            ("ñ", "n"), ("ç", "c"), ("œ", "oe"), ("æ", "ae"),
+        ]
+        for acc, asc in accent_to_ascii:
+            text = text.replace(acc, asc)
+        return text.encode("utf-8", "ignore").decode("utf-8").strip()
+
+    def _validate_wa_name(self):
+        """Valide le nom du template (wa_name). Retourne (True, "") ou (False, message_erreur)."""
+        self.ensure_one()
+        if not self.wa_name or not self.wa_name.strip():
+            return False, _("Le nom du template (wa_name) est requis.")
+        if " " in self.wa_name:
+            return False, _("Le nom du template ne doit pas contenir d'espaces.")
+        if not self.wa_name.islower():
+            return False, _("Le nom du template doit être en minuscules.")
+        return True, ""
+
     def _get_body_text_for_meta(self):
         """Retourne le texte du corps pour l'API Meta (avec {{1}}, {{2}}, etc.)."""
         self.ensure_one()
@@ -113,38 +154,75 @@ class WhatsappTemplate(models.Model):
             return "Message"
         return " ".join("{{%d}}" % p.get("index", i + 1) for i, p in enumerate(body_params))
 
+    def _validate_template(self):
+        """Valide les données du template avant envoi vers Meta. Retourne une liste d'erreurs (vide si OK)."""
+        self.ensure_one()
+        errors = []
+        ok, msg = self._validate_wa_name()
+        if not ok:
+            errors.append(msg)
+        if not self.body_text or not self.body_text.strip():
+            errors.append(_("Le texte du corps (body_text) est obligatoire."))
+        else:
+            structure = self.get_parameter_structure()
+            body_params = structure.get("body") or []
+            if body_params and "{{" not in self.body_text:
+                errors.append(_("Le texte du corps doit contenir des placeholders (ex: {{1}}) lorsque le template a des paramètres."))
+        lang = (self.language_code or "").strip()
+        if not lang:
+            errors.append(_("Le code langue est obligatoire (ex: fr_FR, en_US)."))
+        category = (self.category or "").strip().upper()
+        if category not in ("UTILITY", "MARKETING", "AUTHENTICATION", "UNKNOWN"):
+            errors.append(_("La catégorie doit être UTILITY, MARKETING ou AUTHENTICATION."))
+        return errors
+
     def _build_meta_create_payload(self):
         """Construit le payload pour créer le template dans WhatsApp Business (Meta).
-        Référence: POST /{WABA_ID}/message_templates
-        Doc Meta: category et type en minuscules ("utility", "body"), parameter_format si variables.
+        Conforme aux exemples Meta :
+        - positionnel : parameter_format "positional", example.body_text = [ ["val1", "val2"] ]
+        - nommé : parameter_format "named", example.body_text_named_params = [ { param_name, example }, ... ]
         """
         self.ensure_one()
-        body_text = self._get_body_text_for_meta()
+        raw_body = self.body_text or self._get_body_text_for_meta() or ""
+        body_text = self.clean_text(raw_body)
         structure = self.get_parameter_structure()
         body_params = structure.get("body") or []
-        example_body = []
+
+        body_component = {"type": "body", "text": body_text}
+
         if body_params:
-            example_body = [[str("Exemple%d" % (i + 1)) for i in range(len(body_params))]]
-        body_component = {
-            "type": "body",
-            "text": body_text,
-        }
-        if example_body:
-            body_component["example"] = {"body_text": example_body}
+            has_named = any(p.get("param_name") for p in body_params)
+            if has_named:
+                body_component["example"] = {
+                    "body_text_named_params": [
+                        {
+                            "param_name": p.get("param_name", "param_%d" % (i + 1)),
+                            "example": p.get("example", "Exemple%d" % (i + 1)),
+                        }
+                        for i, p in enumerate(body_params)
+                    ]
+                }
+            else:
+                example_values = ["Exemple%d" % (i + 1) for i in range(len(body_params))]
+                body_component["example"] = {"body_text": [example_values]}
+
         components = [body_component]
-        lang = (self.language_code or "fr").strip() or "fr"
+        lang = (self.language_code or "fr").strip()
         if lang.lower().startswith("fr"):
             lang = "fr_FR"
+        elif lang.lower().startswith("en"):
+            lang = "en_US"
         category = (self.category or "UNKNOWN").strip().upper()
         if category not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
             category = "UTILITY"
         category_lower = category.lower()
+        name_safe = (self.wa_name or "").lower().replace(" ", "_").strip()
         payload = {
-            "name": self.wa_name,
+            "name": name_safe or "template",
             "language": lang,
             "category": category_lower,
             "components": components,
         }
         if body_params:
-            payload["parameter_format"] = "positional"
+            payload["parameter_format"] = "named" if any(p.get("param_name") for p in body_params) else "positional"
         return payload

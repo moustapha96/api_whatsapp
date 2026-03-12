@@ -212,7 +212,7 @@ class WhatsappConfig(models.Model):
             raise ValidationError(_("Le token d'accès WhatsApp n'est pas configuré."))
         return {
             "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
         }
 
     def _send_whatsapp_request(self, payload):
@@ -706,30 +706,26 @@ class WhatsappConfig(models.Model):
         recipient_type="individual",
     ):
         """
-        Envoie un message template WhatsApp selon la documentation Meta.
-        
+        Envoie un message template WhatsApp (POST /v1/messages).
+        Payload conforme à l'exemple Meta :
+        to, type: "template", template: { name, language: { code, policy: "deterministic" }, components }.
+
         IMPORTANT : Le template doit être créé et approuvé dans Meta Business Suite avant utilisation.
-        
+
         Args:
-            to_phone: Numéro de téléphone destinataire (format international, ex: +33612345678)
-            template_name: Nom du template tel que défini dans Meta (ex: "hello_world", "order_confirmation")
-            language_code: Code langue ('fr', 'fr_FR', 'en_US', etc.)
-            components: Liste de composants pour les paramètres (body, header, buttons, footer)
-            recipient_type: Type de destinataire ("individual" par défaut)
-        
-        Exemples de components selon la documentation Meta:
-        
-        # Template simple (sans paramètres)
-        components = None
-        
-        # Template avec paramètres POSITIONNELS dans le body ({{1}}, {{2}})
+            to_phone: Numéro destinataire (format international, ex: +33612345678). Envoyé comme "to" sans le +.
+            template_name: Nom du template Meta (ex: "hello_world", "invoice_message")
+            language_code: Code langue ('fr', 'fr_FR', 'en_US')
+            components: Liste de composants ; body avec parameters: [ {"type": "text", "text": "value"}, ... ]
+            recipient_type: "individual" par défaut
+
+        Exemple components (template avec paramètres body {{1}}, {{2}}) :
         components = [
             {
                 "type": "body",
                 "parameters": [
-                    {"type": "text", "text": "Jean Dupont"},      # {{1}}
-                    {"type": "text", "text": "CMD-2024-001"},     # {{2}}
-                    {"type": "text", "text": "150.00"}            # {{3}}
+                    {"type": "text", "text": "value_for_parameter_1"},
+                    {"type": "text", "text": "value_for_parameter_2"},
                 ]
             }
         ]
@@ -823,26 +819,26 @@ class WhatsappConfig(models.Model):
 
         # Valide et nettoie le numéro
         to_phone = self._validate_phone_number(to_phone)
+        # Meta attend "to" = wa_id (numéro sans le préfixe +)
+        to_wa_id = to_phone.lstrip("+") if to_phone else ""
 
-        # Construit le template selon la documentation Meta
+        # Payload conforme à POST /v1/messages (template)
+        # language avec code + policy "deterministic"
         template = {
             "name": template_name,
-            "language": {"code": language_code},
+            "language": {"code": language_code, "policy": "deterministic"},
         }
-        
-        # Ajoute les composants si fournis
         if components:
             template["components"] = components
 
-        # Construit le payload selon la documentation Meta
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": recipient_type,
-            "to": to_phone,
+            "to": to_wa_id,
             "type": "template",
             "template": template,
         }
-        
+
         data, message_id, raw_response, error_message = self._send_whatsapp_request(payload)
 
         # Détermine le statut
@@ -1024,7 +1020,7 @@ class WhatsappConfig(models.Model):
         self.ensure_one()
         if not self.whatsapp_business_account_id:
             raise ValidationError(_("WhatsApp Business Account ID manquant dans la configuration."))
-        url = f"https://graph.facebook.com/v25.0/{self.whatsapp_business_account_id}/message_templates"
+        url = f"https://graph.facebook.com/v23.0/{self.whatsapp_business_account_id}/message_templates"
         headers = self._get_headers()
         all_templates = self.env['whatsapp.template'].search([])
         # N'envoyer que les templates qui ont un corps défini (évite "Invalid parameter" pour templates sans body_text)
@@ -1034,9 +1030,14 @@ class WhatsappConfig(models.Model):
         errors = []
         for tpl in templates:
             try:
+                validation_errors = tpl._validate_template()
+                if validation_errors:
+                    errors.append("%s: %s" % (tpl.wa_name, "; ".join(validation_errors)))
+                    continue
                 payload = tpl._build_meta_create_payload()
+                body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 response = requests.post(
-                    url, headers=headers, data=json.dumps(payload), timeout=30
+                    url, headers=headers, data=body_bytes, timeout=30
                 )
                 data = response.json() if response.text else {}
                 if response.status_code == 200 and not data.get("error"):
@@ -1050,28 +1051,61 @@ class WhatsappConfig(models.Model):
                         pushed += 1
                         _logger.info("Template %s existe déjà sur WhatsApp Business.", tpl.wa_name)
                     else:
-                        _logger.warning("Template %s - Meta error: %s - Payload: %s", tpl.wa_name, msg, json.dumps(payload, ensure_ascii=False))
+                        _logger.info(
+                            "Template %s - Meta: %s (création manuelle possible dans WhatsApp Manager)",
+                            tpl.wa_name, msg,
+                        )
                         errors.append("%s: %s" % (tpl.wa_name, msg))
             except Exception as e:
                 errors.append("%s: %s" % (tpl.wa_name, str(e)))
-        if errors:
-            raise ValidationError(
-                _("Envoi des templates terminé. Envoyés : %d. Erreurs : %s")
-                % (pushed, " | ".join(errors[:8]))
+        whatsapp_manager_url = "https://business.facebook.com/latest/whatsapp_manager/message_templates"
+
+        if errors and pushed == 0:
+            message = _(
+                "La création des templates via l'API Meta a échoué (droits ou format). "
+                "Créez les templates manuellement dans WhatsApp Manager, puis utilisez « Synchroniser depuis WhatsApp » pour les récupérer dans Odoo."
             )
+            message += " " + _("Lien : %s") % whatsapp_manager_url
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Création manuelle requise"),
+                    "message": message,
+                    "type": "info",
+                    "sticky": True,
+                },
+            }
+        if errors:
+            message = _("Templates envoyés : %d. Échecs : %d. %s") % (
+                pushed,
+                len(errors),
+                " | ".join(errors[:5]),
+            )
+            message += " " + _("Pour les échecs, créez les templates dans WhatsApp Manager puis « Synchroniser depuis WhatsApp ». Lien : %s") % whatsapp_manager_url
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Envoi partiel"),
+                    "message": message,
+                    "type": "warning",
+                    "sticky": True,
+                },
+            }
         message = _("Templates envoyés vers WhatsApp Business : %d.") % pushed
         if skipped:
-            message += " " + _("%d template(s) ignoré(s) (sans « Texte du corps »). Renseignez le champ pour les envoyer.") % skipped
+            message += " " + _("%d template(s) ignoré(s) (sans « Texte du corps »).") % skipped
         message += " " + _("Synchronisez depuis WhatsApp pour mettre à jour les statuts.")
         return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'title': _('Succès'),
-                'message': message,
-                'type': 'success',
-                'sticky': False,
-            }
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Succès"),
+                "message": message,
+                "type": "success",
+                "sticky": False,
+            },
         }
 
     def action_fetch_sent_messages(self):

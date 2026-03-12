@@ -89,6 +89,9 @@
                         <field name="unpaid_invoice_days" 
                                attrs="{'required': [('auto_send_unpaid_invoices', '=', True)], 'invisible': [('auto_send_unpaid_invoices', '=', False)]}"
                                help="Nombre de jours après l'échéance avant d'envoyer un rappel pour les factures impayées"/>
+                        <field name="template_invoice_id" 
+                               options="{'no_create': True}"
+                               help="Template avec un seul paramètre (le message). Si vide, envoi en message texte (soumis à la fenêtre 24h)."/>
                     </group>
                     <group string="Affichage des boutons WhatsApp">
                         <field name="show_button_in_invoice" 

@@ -96,7 +96,14 @@ class WhatsappConfig(models.Model):
         default=True,
         help="Si activé, le bouton 'Envoyer WhatsApp' sera visible dans la vue formulaire des partenaires"
     )
-    
+
+    template_invoice_id = fields.Many2one(
+        "whatsapp.template",
+        string="Template pour envoi factures",
+        default=lambda self: self.env.ref("api_whatsapp.template_invoice_message", raise_if_not_found=False),
+        help="Template WhatsApp avec un seul paramètre (le message). Utilisé pour envoyer les notifications de factures. À créer dans Meta avec le corps : {{1}}"
+    )
+
     @api.model
     def get_active_config(self):
         """Retourne la configuration WhatsApp active"""
@@ -883,6 +890,34 @@ class WhatsappConfig(models.Model):
             raise ValidationError(_("Erreur lors de l'envoi du template : %s") % error_message)
         
         return data if data else result
+
+    def send_invoice_message(self, partner_id, message_text):
+        """
+        Envoie un message (ex: notification de facture) par template si configuré,
+        sinon en message texte. Le template doit avoir un seul paramètre = le message.
+        """
+        partner = self.env["res.partner"].browse(partner_id)
+        if not partner.exists():
+            raise ValidationError(_("Partenaire introuvable."))
+        phone = partner.phone or partner.mobile
+        if not phone:
+            raise ValidationError(_("Le partenaire %s n'a pas de numéro de téléphone.") % partner.name)
+        phone = self._validate_phone_number(phone, partner=partner)
+
+        if self.template_invoice_id and self.template_invoice_id.wa_name:
+            components = [
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": message_text}],
+                }
+            ]
+            return self.send_template_message(
+                to_phone=phone,
+                template_name=self.template_invoice_id.wa_name,
+                language_code=self.template_invoice_id.language_code or "fr",
+                components=components,
+            )
+        return self.send_text_to_partner(partner_id=partner_id, message_text=message_text)
 
     # ---------------------------------------------------------------------
     # Actions de configuration

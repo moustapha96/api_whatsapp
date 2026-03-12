@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Exemples de templates WhatsApp -->
 <odoo>
+    <!-- Template pour envoi factures : 1 seul paramètre = le message (corps entier) -->
+    <record id="template_invoice_message" model="whatsapp.template">
+        <field name="name">Message simple (factures)</field>
+        <field name="wa_name">invoice_message</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">APPROVED</field>
+        <field name="description">Template pour envoyer un message texte (ex: notification de facture). À créer dans Meta Business Suite : nom = invoice_message, langue = fr. Corps du template : {{1}} (un seul paramètre = le message complet).</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Message"}], "header": [], "buttons": []}</field>
+    </record>
+
     <!-- Template 0: Message texte simple (RECOMMANDÉ) -->
     <record id="template_simple_text_message" model="whatsapp.template">
         <field name="name">Message texte simple</field>

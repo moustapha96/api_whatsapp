@@ -186,7 +186,7 @@ class AccountMove(models.Model):
                 message += f"\n\nConsulter la facture : {invoice_url}"
             
             # Envoie le message via WhatsApp
-            result = whatsapp_config.send_text_to_partner(
+            result = whatsapp_config.send_invoice_message(
                 partner_id=self.partner_id.id,
                 message_text=message
             )
@@ -389,7 +389,7 @@ class AccountMove(models.Model):
                 )
             else:
                 # Message texte simple si pas de boutons disponibles
-                result = whatsapp_config.send_text_to_partner(
+                result = whatsapp_config.send_invoice_message(
                     partner_id=self.partner_id.id,
                     message_text=details_message
                 )
@@ -593,7 +593,7 @@ class AccountMove(models.Model):
                     message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
                 message += "\nMerci de votre confiance !"
                 
-                result = whatsapp_config.send_text_to_partner(
+                result = whatsapp_config.send_invoice_message(
                     partner_id=self.partner_id.id,
                     message_text=message
                 )
@@ -637,7 +637,7 @@ class AccountMove(models.Model):
                         message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
                     message += "\nMerci de votre confiance !"
                     
-                    result = whatsapp_config.send_text_to_partner(
+                    result = whatsapp_config.send_invoice_message(
                         partner_id=self.partner_id.id,
                         message_text=message
                     )
@@ -710,7 +710,7 @@ class AccountMove(models.Model):
                             message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
                         message += "\nMerci de votre confiance !"
                         
-                        result = whatsapp_config.send_text_to_partner(
+                        result = whatsapp_config.send_invoice_message(
                             partner_id=self.partner_id.id,
                             message_text=message
                         )
@@ -728,7 +728,7 @@ class AccountMove(models.Model):
                         message += f"Date : {self.invoice_date.strftime('%d/%m/%Y')}\n"
                     message += "\nMerci de votre confiance !"
                     
-                    result = whatsapp_config.send_text_to_partner(
+                    result = whatsapp_config.send_invoice_message(
                         partner_id=self.partner_id.id,
                         message_text=message
                     )
@@ -897,7 +897,7 @@ class AccountMove(models.Model):
                 )
             else:
                 # Message texte simple si pas de boutons (PDF non disponible)
-                result = whatsapp_config.send_text_to_partner(
+                result = whatsapp_config.send_invoice_message(
                     partner_id=self.partner_id.id,
                     message_text=message
                 )
@@ -991,7 +991,7 @@ class AccountMove(models.Model):
             no_invoice_message += "Équipe CCTS"
 
             try:
-                result = whatsapp_config.send_text_to_partner(
+                result = whatsapp_config.send_invoice_message(
                     partner_id=partner.id,
                     message_text=no_invoice_message
                 )
@@ -1230,7 +1230,7 @@ class AccountMove(models.Model):
             )
         else:
             # Message texte simple si pas de boutons
-            result = whatsapp_config.send_text_to_partner(
+            result = whatsapp_config.send_invoice_message(
                 partner_id=self.partner_id.id,
                 message_text=details_message
             )

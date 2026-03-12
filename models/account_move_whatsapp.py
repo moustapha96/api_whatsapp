@@ -57,6 +57,12 @@ class AccountMove(models.Model):
     x_whatsapp_invoice_sent_date = fields.Datetime(
         string="Date envoi facture WhatsApp"
     )
+
+    x_whatsapp_auto_send_attempted = fields.Boolean(
+        string="Envoi auto WhatsApp déjà tenté",
+        default=False,
+        help="Indique qu'une tentative d'envoi automatique a déjà été faite (succès ou non), pour éviter les doublons lors de multiples write()."
+    )
     
     x_whatsapp_unpaid_reminder_sent = fields.Boolean(
         string="Rappel facture impayée WhatsApp envoyé",
@@ -91,18 +97,24 @@ class AccountMove(models.Model):
                 old_state_value = old_state.get(record.id)
                 new_state_value = record.state
                 
-                # Si la facture passe à l'état "posted" (validée), envoie la facture
+                # Si la facture passe à l'état "posted" (validée), envoie la facture (une seule tentative par facture)
                 if (old_state_value != new_state_value and 
                     new_state_value == 'posted' and 
-                    not record.x_whatsapp_invoice_sent):
-                    _logger.info("Tentative d'envoi automatique de la facture %s (état: %s -> %s)", 
-                               record.name, old_state_value, new_state_value)
+                    not record.x_whatsapp_invoice_sent and 
+                    not record.x_whatsapp_auto_send_attempted):
+                    _logger.debug("Tentative d'envoi automatique de la facture %s (état: %s -> %s)", 
+                                  record.name, old_state_value, new_state_value)
                     try:
                         record._send_whatsapp_invoice()
+                    except ValidationError:
+                        raise
                     except Exception as e:
                         _logger.warning("Erreur lors de l'envoi de la facture WhatsApp pour %s: %s", record.name, str(e))
                 elif old_state_value != new_state_value and new_state_value == 'posted':
-                    _logger.info("Facture %s déjà envoyée (x_whatsapp_invoice_sent=True), envoi ignoré", record.name)
+                    if record.x_whatsapp_auto_send_attempted:
+                        _logger.debug("Facture %s: envoi auto WhatsApp déjà tenté, ignoré", record.name)
+                    else:
+                        _logger.debug("Facture %s déjà envoyée (x_whatsapp_invoice_sent=True), envoi ignoré", record.name)
                 
                 # Si le montant résiduel a changé, envoie un message
                 old_residual_value = old_residual.get(record.id)
@@ -147,8 +159,8 @@ class AccountMove(models.Model):
             return
         
         try:
-            # Nettoie le numéro de téléphone
-            phone = whatsapp_config._validate_phone_number(phone)
+            # Nettoie le numéro de téléphone (prise en charge Sénégal +221 via pays du partenaire)
+            phone = whatsapp_config._validate_phone_number(phone, partner=self.partner_id)
             
             # Prépare le message
             message = f"Bonjour {self.partner_id.name},\n\n"
@@ -190,7 +202,7 @@ class AccountMove(models.Model):
                 _logger.warning("Échec de l'envoi du message WhatsApp de montant résiduel pour la facture %s: %s", self.name, result.get('error', 'Erreur inconnue'))
                 
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi du message WhatsApp de montant résiduel pour la facture %s", self.name)
+            _logger.warning("Message WhatsApp montant résiduel facture %s non envoyé (non bloquant): %s", self.name, str(e))
             # Ne lève pas d'exception pour ne pas bloquer la modification de la facture
     
     def action_send_invoice_details_whatsapp(self):
@@ -284,30 +296,29 @@ class AccountMove(models.Model):
             # Génère le PDF pour le bouton de téléchargement
             pdf_url = None
             try:
-                # Essaie plusieurs méthodes pour trouver le rapport
+                # Essaie plusieurs méthodes pour trouver le rapport (sudo pour éviter "Enregistrement inexistant")
                 report = None
                 report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
-                
+                Report = self.env['ir.actions.report'].sudo()
                 for report_name in report_names:
                     try:
-                        report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                        report = Report._get_report_from_name(report_name)
                         if report and report.exists() and report.id:
                             break
                         else:
                             report = None
-                    except:
+                    except Exception:
                         report = None
                         continue
                 
                 if not report or not report.exists():
-                    report = self.env['ir.actions.report'].search([
+                    report = Report.search([
                         ('report_name', 'in', report_names),
                         ('model', '=', 'account.move')
                     ], limit=1)
                 
                 if report and report.exists():
-                    # Génère le PDF
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    pdf_content, _unused = report.sudo()._render_qweb_pdf(self.id)
                     
                     if pdf_content:
                         # Crée un attachment public pour le PDF
@@ -485,56 +496,69 @@ class AccountMove(models.Model):
             _logger.info("Facture %s marquée comme envoyée par WhatsApp", self.name)
     
     def _send_whatsapp_invoice(self):
-        """Envoie la facture en PDF par WhatsApp lorsqu'elle est validée"""
+        """Envoie la facture en PDF par WhatsApp lorsqu'elle est validée. Non bloquant : en cas d'absence de téléphone ou d'erreur PDF/réseau, on ne lève pas d'exception."""
         self.ensure_one()
-        
-        _logger.info("Début de l'envoi WhatsApp pour la facture %s", self.name)
-        
+
+        # Marquer tout de suite qu'une tentative a été faite (évite les appels multiples au write)
+        if not self.x_whatsapp_auto_send_attempted:
+            self.sudo().write({'x_whatsapp_auto_send_attempted': True})
+
+        _logger.debug("Début de l'envoi WhatsApp pour la facture %s", self.name)
+
         # Vérifie si la facture a déjà été envoyée (évite les doublons) - VÉRIFICATION EN PREMIER
-        # Utilise sudo() pour vérifier même si l'utilisateur n'a pas les droits
         if self.sudo().x_whatsapp_invoice_sent:
-            _logger.info("Facture %s déjà envoyée par WhatsApp (x_whatsapp_invoice_sent=True), envoi ignoré", self.name)
+            _logger.debug("Facture %s déjà envoyée par WhatsApp, envoi ignoré", self.name)
             return
-        
+
         # Vérifie qu'il y a un partenaire avec un numéro de téléphone
         if not self.partner_id:
-            _logger.warning("Facture %s n'a pas de partenaire associé, envoi WhatsApp annulé", self.name)
+            _logger.info("Facture %s: pas de partenaire associé, envoi WhatsApp non effectué", self.name)
             return
-        
+
         # Vérifie si le partenaire a un numéro de téléphone
         phone = self.partner_id.phone or self.partner_id.mobile
         if not phone:
-            _logger.warning("Partenaire %s (ID: %s) n'a pas de numéro de téléphone, facture %s non envoyée", 
-                         self.partner_id.name, self.partner_id.id, self.name)
+            _logger.info("Facture %s: partenaire %s (ID: %s) sans numéro, envoi WhatsApp non effectué",
+                         self.name, self.partner_id.name, self.partner_id.id)
             return
-        
-        _logger.info("Numéro de téléphone trouvé pour le partenaire %s: %s", self.partner_id.name, phone)
-        
+
+        _logger.debug("Numéro trouvé pour partenaire %s: %s", self.partner_id.name, phone)
+
         # Récupère la configuration WhatsApp active
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
         if not whatsapp_config:
-            # Ne log pas d'avertissement en mode test
             is_test_mode = config.get('test_enable') or config.get('test_file') or self.env.context.get('test_mode')
             if not is_test_mode:
-                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer la facture %s", self.name)
-            else:
-                _logger.info("Mode test détecté, configuration WhatsApp non requise")
+                _logger.info("Facture %s: aucune configuration WhatsApp active, envoi non effectué", self.name)
             return
-        
-        _logger.info("Configuration WhatsApp active trouvée (ID: %s)", whatsapp_config.id)
+
+        _logger.debug("Configuration WhatsApp active (ID: %s)", whatsapp_config.id)
+
+        # N'envoyer que pour les factures liées à un contrat de location toujours en cours
+        if hasattr(self, 'rental_contract_id'):
+            if not self.rental_contract_id:
+                _logger.info("Facture %s: pas de contrat de location lié, envoi WhatsApp non effectué", self.name)
+                return
+            if self.rental_contract_id.state != 'active':
+                _logger.info(
+                    "Facture %s: contrat %s non en cours (état: %s), envoi WhatsApp non effectué",
+                    self.name, self.rental_contract_id.name, self.rental_contract_id.state
+                )
+                return
         
         try:
-            # Nettoie le numéro de téléphone
-            phone = whatsapp_config._validate_phone_number(phone)
+            # Nettoie le numéro de téléphone (prise en charge Sénégal +221 via pays du partenaire)
+            phone = whatsapp_config._validate_phone_number(phone, partner=self.partner_id)
             
             # Génère le PDF de la facture
             # Essaie plusieurs méthodes pour trouver le rapport
             report = None
             report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
             
+            Report = self.env['ir.actions.report'].sudo()
             for report_name in report_names:
                 try:
-                    report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                    report = Report._get_report_from_name(report_name)
                     if report and report.exists() and report.id:
                         break
                     else:
@@ -547,7 +571,7 @@ class AccountMove(models.Model):
             # Si pas trouvé, cherche directement dans la base
             if not report or not report.exists():
                 try:
-                    report = self.env['ir.actions.report'].search([
+                    report = Report.search([
                         ('report_name', 'in', report_names),
                         ('model', '=', 'account.move')
                     ], limit=1)
@@ -578,28 +602,29 @@ class AccountMove(models.Model):
                     self._mark_invoice_sent()
                 pdf_content = None
             else:
-                # Génère le PDF avec le rapport trouvé
+                # Génère le PDF avec le rapport trouvé (non bloquant : erreur réseau/PDF → envoi texte uniquement)
+                pdf_content = None
                 try:
-                    # Vérifie que le rapport existe toujours avant de l'utiliser
                     if not report.exists():
                         raise Exception("Le rapport n'existe plus")
-                    
-                    # _render_qweb_pdf sur un objet report attend un ID unique (int)
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    pdf_content, _unused = report.sudo()._render_qweb_pdf(self.id)
+                except (OSError, ConnectionError) as e:
+                    # ConnectionRefusedError, timeout, etc. : non bloquant, on envoie le message texte
+                    _logger.info("Facture %s: génération PDF indisponible (réseau/wkhtmltopdf), envoi texte uniquement: %s", self.name, str(e))
+                    pdf_content = None
                 except Exception as e:
-                    _logger.warning("Erreur lors de la génération du PDF avec le rapport %s pour la facture %s: %s", 
-                                  report.report_name if report else 'N/A', self.name, str(e))
-                    # Essaie avec la méthode de classe en passant le nom du rapport
+                    _logger.info("Facture %s: erreur génération PDF, envoi texte uniquement: %s", self.name, str(e))
                     try:
                         if report and report.report_name:
-                            pdf_content, _unused = self.env['ir.actions.report']._render_qweb_pdf(
+                            pdf_content, _unused = self.env['ir.actions.report'].sudo()._render_qweb_pdf(
                                 report.report_name,
                                 self.id
                             )
-                        else:
-                            pdf_content = None
+                    except (OSError, ConnectionError) as e2:
+                        _logger.info("Facture %s: génération PDF (fallback) indisponible: %s", self.name, str(e2))
+                        pdf_content = None
                     except Exception as e2:
-                        _logger.warning("Erreur avec méthode de classe: %s", str(e2))
+                        _logger.debug("Facture %s: fallback PDF échoué: %s", self.name, str(e2))
                         pdf_content = None
                 
                 if not pdf_content:
@@ -748,8 +773,11 @@ class AccountMove(models.Model):
                 _logger.warning("Échec de l'envoi de la facture WhatsApp pour %s: %s", self.name, result.get('error', 'Erreur inconnue'))
                 # Ne marque pas comme envoyé si l'envoi a échoué, pour permettre une nouvelle tentative
                 
+        except ValidationError as e:
+            _logger.warning("Envoi WhatsApp facture %s non effectué (validation): %s", self.name, str(e))
+            # Ne pas re-lever : ne pas bloquer la validation de la facture (format téléphone, config, etc.)
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi de la facture WhatsApp pour %s", self.name)
+            _logger.warning("Envoi WhatsApp facture %s non effectué (non bloquant): %s", self.name, str(e))
             # Ne lève pas d'exception pour ne pas bloquer la validation de la facture
     
     def _send_unpaid_invoice_reminder(self):
@@ -778,8 +806,8 @@ class AccountMove(models.Model):
             return
         
         try:
-            # Nettoie le numéro de téléphone
-            phone = whatsapp_config._validate_phone_number(phone)
+            # Nettoie le numéro de téléphone (prise en charge Sénégal +221 via pays du partenaire)
+            phone = whatsapp_config._validate_phone_number(phone, partner=self.partner_id)
             
             # Génère le PDF de la facture et crée un lien public
             pdf_url = None
@@ -788,26 +816,27 @@ class AccountMove(models.Model):
                 report = None
                 report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
                 
+                Report = self.env['ir.actions.report'].sudo()
                 for report_name in report_names:
                     try:
-                        report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                        report = Report._get_report_from_name(report_name)
                         if report and report.exists() and report.id:
                             break
                         else:
                             report = None
-                    except:
+                    except Exception:
                         report = None
                         continue
                 
                 if not report or not report.exists():
-                    report = self.env['ir.actions.report'].search([
+                    report = Report.search([
                         ('report_name', 'in', report_names),
                         ('model', '=', 'account.move')
                     ], limit=1)
                 
                 if report and report.exists():
-                    # Génère le PDF
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    # Génère le PDF (sudo pour éviter "Enregistrement inexistant" si règles d'accès)
+                    pdf_content, _unused = report.sudo()._render_qweb_pdf(self.id)
                     
                     if pdf_content:
                         # Crée un attachment public pour le PDF
@@ -903,7 +932,7 @@ class AccountMove(models.Model):
                 _logger.warning("Échec de l'envoi du rappel facture impayée pour %s: %s", self.name, result.get('error', 'Erreur inconnue'))
                 
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi du rappel facture impayée pour la facture %s: %s", self.name, str(e))
+            _logger.warning("Rappel facture impayée %s non envoyé (non bloquant): %s", self.name, str(e))
     
     @api.model
     def send_all_invoices_to_partner_whatsapp(self, partner_id, phone=None, include_links=False):
@@ -942,8 +971,8 @@ class AccountMove(models.Model):
             _logger.warning("Aucune configuration WhatsApp active trouvée")
             return {'success': False, 'error': 'Configuration WhatsApp non trouvée', 'count': 0}
         
-        # Nettoie le numéro de téléphone
-        phone = whatsapp_config._validate_phone_number(phone)
+        # Nettoie le numéro de téléphone (prise en charge Sénégal +221 via pays du partenaire)
+        phone = whatsapp_config._validate_phone_number(phone, partner=partner)
         
         # Recherche toutes les factures du partenaire (validées) qui ne sont pas totalement payées
         # On les trie de la plus ancienne à la plus récente
@@ -1004,8 +1033,8 @@ class AccountMove(models.Model):
             )
             _logger.info("Facture %s envoyée avec succès", first_invoice.name)
         except Exception as e:
-            _logger.exception(
-                "Erreur lors de l'envoi de la facture impayée la plus ancienne %s: %s",
+            _logger.warning(
+                "Envoi facture impayée %s non effectué (non bloquant): %s",
                 first_invoice.name, str(e)
             )
             return {
@@ -1084,26 +1113,26 @@ class AccountMove(models.Model):
         try:
             report = None
             report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
-            
+            Report = self.env['ir.actions.report'].sudo()
             for report_name in report_names:
                 try:
-                    report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                    report = Report._get_report_from_name(report_name)
                     if report and report.exists() and report.id:
                         break
                     else:
                         report = None
-                except:
+                except Exception:
                     report = None
                     continue
             
             if not report or not report.exists():
-                report = self.env['ir.actions.report'].search([
+                report = Report.search([
                     ('report_name', 'in', report_names),
                     ('model', '=', 'account.move')
                 ], limit=1)
             
             if report and report.exists():
-                pdf_content, _unused = report._render_qweb_pdf(self.id)
+                pdf_content, _unused = report.sudo()._render_qweb_pdf(self.id)
                 
                 if pdf_content:
                     attachment = self.env['ir.attachment'].create({

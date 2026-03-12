@@ -285,26 +285,35 @@ class WhatsappConfig(models.Model):
     # Envoi de messages : texte, média, localisation, template
     # ---------------------------------------------------------------------
 
-    def _validate_phone_number(self, phone):
-        """Valide et nettoie le numéro de téléphone"""
+    def _validate_phone_number(self, phone, partner=None):
+        """Valide et nettoie le numéro de téléphone (supporte Sénégal +221, France +33, etc.)."""
         if not phone:
             raise ValidationError(_("Numéro de téléphone manquant."))
         
         # Nettoie le numéro
         phone = phone.replace(' ', '').replace('-', '').replace('.', '').replace('(', '').replace(')', '')
         
-        # Vérifie le format
+        # Format international
         if not phone.startswith('+'):
-            # Si commence par 0, remplace par l'indicatif du pays (à adapter)
             if phone.startswith('0'):
-                phone = '+33' + phone[1:]  # Exemple pour la France
+                # Utilise l'indicatif du pays du partenaire si disponible, sinon Sénégal (+221) par défaut
+                country_code = '+221'
+                if partner and partner.country_id and partner.country_id.phone_code:
+                    raw = str(partner.country_id.phone_code).strip().lstrip('+')
+                    if raw.isdigit():
+                        country_code = '+' + raw
+                phone = country_code + phone[1:]
             else:
                 phone = '+' + phone
         
-        # Vérifie que c'est un numéro valide (au moins 10 chiffres après le +)
-        digits_only = phone[1:].replace('+', '')
-        if not digits_only.isdigit() or len(digits_only) < 10:
-            raise ValidationError(_("Format de numéro de téléphone invalide. Format attendu: +33612345678"))
+        # Vérifie que c'est un numéro valide (au moins 9 chiffres après le +, ex. +221771234567)
+        digits_only = phone[1:].lstrip('+')
+        if not digits_only.isdigit() or len(digits_only) < 9:
+            raise ValidationError(
+                _("Format de numéro de téléphone invalide pour « %s ». "
+                  "Utilisez le format international : indicatif pays + numéro (ex. +221771234567 Sénégal, +33612345678 France).")
+                % (phone or '')
+            )
         
         return phone
 

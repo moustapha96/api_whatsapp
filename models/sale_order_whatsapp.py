@@ -94,55 +94,180 @@ class SaleOrder(models.Model):
         string="Date envoi détails WhatsApp"
     )
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        """Surcharge la méthode create pour envoyer un message WhatsApp à la création"""
-        # Crée les commandes
-        orders = super().create(vals_list)
+    # @api.model_create_multi
+    # def create(self, vals_list):
+    #     """Surcharge la méthode create pour envoyer un message WhatsApp à la création"""
+    #     # Crée les commandes
+    #     orders = super().create(vals_list)
         
-        # Vérifie si l'envoi automatique est activé
-        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
-        if whatsapp_config and whatsapp_config.auto_send_order_creation:
-            # Envoie un message WhatsApp pour chaque commande créée
-            for order in orders:
-                try:
-                    order._send_whatsapp_creation_notification()
-                except Exception as e:
-                    _logger.warning("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s: %s", order.name, str(e))
-                    # Ne bloque pas la création de la commande si l'envoi échoue
+    #     # Envoie un message WhatsApp pour chaque commande créée
+    #     # La méthode _should_send_whatsapp_notification vérifie automatiquement :
+    #     # - Si c'est une commande à crédit (exclue)
+    #     # - Si l'envoi automatique est activé
+    #     # - Si le message n'a pas déjà été envoyé
+    #     for order in orders:
+    #         try:
+    #             order._send_whatsapp_creation_notification()
+    #         except Exception as e:
+    #             _logger.warning("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s: %s", order.name, str(e))
+    #             # Ne bloque pas la création de la commande si l'envoi échoue
         
-        return orders
+    #     return orders
 
-    def _send_whatsapp_creation_notification(self):
-        """Envoie un message WhatsApp pour confirmer la création de la commande"""
+    def _get_invoice_pdf_url(self, invoice):
+        """Génère l'URL publique de téléchargement du PDF d'une facture
+        
+        Args:
+            invoice: Objet account.move (facture)
+            
+        Returns:
+            str: URL publique de téléchargement ou None si erreur
+        """
+        if not invoice or not invoice.exists():
+            return None
+        
+        try:
+            # Essaie plusieurs méthodes pour trouver le rapport
+            report = None
+            report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
+            
+            for report_name in report_names:
+                try:
+                    report = self.env['ir.actions.report']._get_report_from_name(report_name)
+                    if report and report.exists() and report.id:
+                        break
+                    else:
+                        report = None
+                except:
+                    report = None
+                    continue
+            
+            if not report or not report.exists():
+                report = self.env['ir.actions.report'].search([
+                    ('report_name', 'in', report_names),
+                    ('model', '=', 'account.move')
+                ], limit=1)
+            
+            if report and report.exists():
+                invoice_pdf_content = None
+                try:
+                    invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                except (OSError, ConnectionError) as e:
+                    _logger.info("Génération PDF facture %s indisponible (réseau): %s", invoice.name, str(e))
+                except Exception as e:
+                    _logger.debug("Génération PDF facture %s échouée: %s", invoice.name, str(e))
+                if invoice_pdf_content:
+                    # Crée un attachment public pour le PDF de la facture
+                    invoice_attachment = self.env['ir.attachment'].create({
+                        'name': f"{invoice.name}.pdf",
+                        'type': 'binary',
+                        'datas': base64.b64encode(invoice_pdf_content),
+                        'res_model': 'account.move',
+                        'res_id': invoice.id,
+                        'public': True,
+                    })
+                    
+                    # Génère l'URL publique de téléchargement
+                    base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
+                    invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
+                    _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
+                    return invoice_pdf_url
+        except Exception as e:
+            _logger.warning("Erreur lors de la génération du PDF de la facture %s pour la commande %s: %s", 
+                          invoice.name if invoice else 'N/A', self.name, str(e))
+        
+        return None
+    
+    def _get_confirmed_invoice(self):
+        """Récupère la facture confirmée (posted) la plus récente associée à la commande
+        
+        Returns:
+            account.move ou None: La facture confirmée la plus récente ou None
+        """
+        invoice = self.env['account.move'].search([
+            ('invoice_origin', '=', self.name),
+            ('move_type', 'in', ['out_invoice', 'out_refund']),
+            ('state', '=', 'posted')  # Seulement les factures confirmées
+        ], order='create_date desc', limit=1)
+        
+        return invoice if invoice else None
+    
+    def _should_send_whatsapp_notification(self, notification_type='creation'):
+        """
+        Vérifie si un message WhatsApp doit être envoyé pour cette commande.
+        
+        Cette méthode centralise la logique pour éviter les doublons et les conflits
+        avec le système de notifications pour les commandes à crédit.
+        
+        Args:
+            notification_type: Type de notification ('creation', 'state_change')
+            
+        Returns:
+            bool: True si le message doit être envoyé, False sinon
+        """
         self.ensure_one()
+        
+        # Ne pas envoyer pour les commandes à crédit (gérées par whatsapp.admin.notification)
+        if hasattr(self, 'type_sale') and self.type_sale == 'creditorder':
+            _logger.debug("Commande %s est une commande à crédit, notification WhatsApp standard ignorée", self.name)
+            return False
         
         # Vérifie qu'il y a un partenaire avec un numéro de téléphone
         if not self.partner_id:
-            return
+            return False
         
-        # Vérifie si le partenaire a un numéro de téléphone
         phone = self.partner_id.phone or self.partner_id.mobile
         if not phone:
-            _logger.info("Pas de numéro de téléphone pour le partenaire %s, message WhatsApp non envoyé", self.partner_id.name)
-            return
+            return False
         
-        # Vérifie si le message a déjà été envoyé (évite les doublons)
-        if self.x_whatsapp_creation_sent:
-            return
-        
-        # Récupère la configuration WhatsApp active
+        # Vérifie la configuration WhatsApp
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
         if not whatsapp_config:
-            # Ne log pas d'avertissement en mode test
-            is_test_mode = config.get('test_enable') or config.get('test_file') or self.env.context.get('test_mode')
-            if not is_test_mode:
-                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer le message de création")
+            return False
+        
+        # Vérifie si l'envoi automatique est activé (pour les notifications de création)
+        if notification_type == 'creation':
+            if not whatsapp_config.auto_send_order_creation:
+                return False
+            
+            # Vérifie si le message a déjà été envoyé
+            if self.x_whatsapp_creation_sent:
+                return False
+        
+        # Pour les changements d'état, vérifie que l'état est 'sale' ou 'done'
+        if notification_type == 'state_change':
+            if self.state not in ['sale', 'done']:
+                return False
+            
+            # Vérifie si le message a déjà été envoyé pour cet état
+            if self.x_whatsapp_state_sent and self.state in ['sale', 'done']:
+                return False
+        
+        return True
+    
+    def _send_whatsapp_creation_notification(self):
+        """Envoie un message WhatsApp pour confirmer la création de la commande
+        
+        Note: 
+        - La facture n'est envoyée que si la commande est en 'sale' ou 'done'
+        - Les commandes à crédit sont exclues (gérées par whatsapp.admin.notification)
+        """
+        self.ensure_one()
+        
+        # Vérifie si le message doit être envoyé (méthode centralisée)
+        if not self._should_send_whatsapp_notification(notification_type='creation'):
             return
         
+        # Récupère la configuration WhatsApp active (déjà vérifiée dans _should_send_whatsapp_notification)
+        whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not whatsapp_config:
+            _logger.debug("Commande %s: pas de config WhatsApp active, notification de création non envoyée", self.name)
+            return
+        phone = self.partner_id.phone or self.partner_id.mobile
+
         try:
             # Prépare un message avec 3 boutons : Valider, Annuler, Voir détail
-            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nSouhaitez-vous valider ou annuler cette commande ?"
+            message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nEquipe CCBM SHOP"
             
             # Génère le PDF pour le bouton de téléchargement
             pdf_url = None
@@ -169,9 +294,11 @@ class SaleOrder(models.Model):
                     ], limit=1)
                 
                 if report and report.exists():
-                    # Génère le PDF
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
-                    
+                    try:
+                        pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    except (OSError, ConnectionError) as e:
+                        _logger.info("Génération PDF commande %s indisponible (réseau): %s", self.name, str(e))
+                        pdf_content = None
                     if pdf_content:
                         # Crée un attachment public pour le PDF
                         attachment = self.env['ir.attachment'].create({
@@ -196,97 +323,39 @@ class SaleOrder(models.Model):
                 {
                     "type": "reply",
                     "reply": {
-                        "id": f"btn_validate_order_{self.id}",
-                        "title": "Valider"
-                    }
-                },
-                {
-                    "type": "reply",
-                    "reply": {
-                        "id": f"btn_cancel_order_{self.id}",
-                        "title": "Annuler"
-                    }
-                },
-                {
-                    "type": "reply",
-                    "reply": {
                         "id": f"btn_view_order_details_{self.id}",
                         "title": "Voir détail"
                     }
                 }
             ]
             
-            # Cherche les factures associées à la commande
+            # IMPORTANT: Cherche les factures confirmées UNIQUEMENT si la commande est en 'sale' ou 'done'
             invoice_pdf_url = None
-            invoices = self.env['account.move'].search([
-                ('invoice_origin', '=', self.name),
-                ('move_type', 'in', ['out_invoice', 'out_refund']),
-                ('state', '=', 'posted')
-            ], order='create_date desc', limit=1)
+            invoice = None
             
-            if invoices:
-                # Génère le PDF de la facture la plus récente
-                try:
-                    report = None
-                    report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
-                    
-                    for report_name in report_names:
-                        try:
-                            report = self.env['ir.actions.report']._get_report_from_name(report_name)
-                            if report and report.exists() and report.id:
-                                break
-                            else:
-                                report = None
-                        except:
-                            report = None
-                            continue
-                    
-                    if not report or not report.exists():
-                        report = self.env['ir.actions.report'].search([
-                            ('report_name', 'in', report_names),
-                            ('model', '=', 'account.move')
-                        ], limit=1)
-                    
-                    if report and report.exists():
-                        invoice = invoices[0]
-                        invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
-                        
-                        if invoice_pdf_content:
-                            # Crée un attachment public pour le PDF de la facture
-                            invoice_attachment = self.env['ir.attachment'].create({
-                                'name': f"{invoice.name}.pdf",
-                                'type': 'binary',
-                                'datas': base64.b64encode(invoice_pdf_content),
-                                'res_model': 'account.move',
-                                'res_id': invoice.id,
-                                'public': True,
-                            })
-                            
-                            # Génère l'URL publique de téléchargement
-                            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
-                            invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
-                            _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
-                except Exception as e:
-                    _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+            if self.state in ['sale', 'done']:
+                invoice = self._get_confirmed_invoice()
+                if invoice:
+                    invoice_pdf_url = self._get_invoice_pdf_url(invoice)
             
-            # Si facture disponible, remplace "Voir détail" par "Télécharger facture" (priorité)
-            # Sinon, si PDF commande disponible, remplace par "Télécharger devis"
-            if invoice_pdf_url:
-                buttons[2] = {
+            # Si facture disponible, ajoute le bouton "Télécharger facture" (priorité)
+            # Sinon, si PDF commande disponible, ajoute "Télécharger devis"
+            if invoice_pdf_url and invoice:
+                buttons.append({
                     "type": "reply",
                     "reply": {
-                        "id": f"btn_download_invoice_{invoices[0].id}",
+                        "id": f"btn_download_invoice_{invoice.id}",
                         "title": "Télécharger facture"
                     }
-                }
+                })
             elif pdf_url:
-                buttons[2] = {
+                buttons.append({
                     "type": "reply",
                     "reply": {
                         "id": f"btn_download_order_{self.id}",
                         "title": "Télécharger devis"
                     }
-                }
+                })
             
             # Envoie le message interactif avec les boutons
             phone = whatsapp_config._validate_phone_number(phone)
@@ -328,7 +397,7 @@ class SaleOrder(models.Model):
                 # Ne marque pas comme envoyé si l'envoi a échoué, pour permettre une nouvelle tentative
                 
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s", self.name)
+            _logger.warning("Envoi WhatsApp création commande %s non effectué (non bloquant): %s", self.name, str(e))
             # Ne lève pas d'exception pour ne pas bloquer la création de la commande
 
     def write(self, vals):
@@ -348,44 +417,43 @@ class SaleOrder(models.Model):
                 new_state = vals.get('state')
                 old_state_value = old_state.get(record.id)
                 
+                # IMPORTANT: Ne pas envoyer pour les commandes à crédit (gérées par whatsapp.admin.notification)
+                if hasattr(record, 'type_sale') and record.type_sale == 'creditorder':
+                    continue
+                
                 # Envoie un message si l'état change vers 'sale' (confirmé) ou 'done' (terminé)
                 if old_state_value != new_state and new_state in ['sale', 'done']:
-                    try:
-                        record._send_whatsapp_state_notification(new_state, old_state_value)
-                    except Exception as e:
-                        _logger.warning("Erreur lors de l'envoi du message WhatsApp d'état pour la commande %s: %s", record.name, str(e))
+                    # Vérifie si le message doit être envoyé (méthode centralisée)
+                    if record._should_send_whatsapp_notification(notification_type='state_change'):
+                        try:
+                            record._send_whatsapp_state_notification(new_state, old_state_value)
+                        except Exception as e:
+                            _logger.warning("Erreur lors de l'envoi du message WhatsApp d'état pour la commande %s: %s", record.name, str(e))
         
         return result
 
     def _send_whatsapp_state_notification(self, new_state, old_state):
-        """Envoie un message WhatsApp avec l'état de la commande, la facture et le nouveau montant"""
+        """Envoie un message WhatsApp avec l'état de la commande, la facture et le nouveau montant
+        
+        Note: 
+        - Les commandes à crédit sont exclues (gérées par whatsapp.admin.notification)
+        - La facture n'est envoyée que si elle est confirmée (state='posted')
+        """
         self.ensure_one()
         
-        # Vérifie qu'il y a un partenaire avec un numéro de téléphone
-        if not self.partner_id:
+        # Vérifie si le message doit être envoyé (méthode centralisée)
+        if not self._should_send_whatsapp_notification(notification_type='state_change'):
             return
         
-        # Vérifie si le partenaire a un numéro de téléphone
-        phone = self.partner_id.phone or self.partner_id.mobile
-        if not phone:
-            _logger.info("Pas de numéro de téléphone pour le partenaire %s, message WhatsApp d'état non envoyé", self.partner_id.name)
-            return
-        
-        # Vérifie si le message a déjà été envoyé pour cet état (évite les doublons)
-        if self.x_whatsapp_state_sent and self.state == new_state:
-            return
-        
-        # Récupère la configuration WhatsApp active
+        # Récupère la configuration WhatsApp active (déjà vérifiée dans _should_send_whatsapp_notification)
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
         if not whatsapp_config:
-            # Ne log pas d'avertissement en mode test
-            is_test_mode = config.get('test_enable') or config.get('test_file') or self.env.context.get('test_mode')
-            if not is_test_mode:
-                _logger.warning("Aucune configuration WhatsApp active trouvée pour envoyer le message d'état")
+            _logger.debug("Commande %s: pas de config WhatsApp active, notification d'état non envoyée", self.name)
             return
-        
+        phone = self.partner_id.phone or self.partner_id.mobile
+
         try:
-            # Nettoie le numéro de téléphone
+            # Nettoie le numéro de téléphone (peut lever ValidationError → capturé ci-dessous)
             phone = whatsapp_config._validate_phone_number(phone)
             
             # Prépare le message avec l'état
@@ -402,11 +470,8 @@ class SaleOrder(models.Model):
             message = f"Bonjour {self.partner_id.name},\n\n"
             message += f"État de votre commande {self.name} : {state_label}\n\n"
             
-            # Récupère les factures associées (la plus récente)
-            invoice = self.env['account.move'].search([
-                ('invoice_origin', '=', self.name),
-                ('move_type', 'in', ['out_invoice', 'out_refund'])
-            ], order='create_date desc', limit=1)
+            # IMPORTANT: Récupère UNIQUEMENT les factures confirmées (posted)
+            invoice = self._get_confirmed_invoice()
             
             if invoice:
                 invoice_amount = invoice.amount_total
@@ -421,63 +486,24 @@ class SaleOrder(models.Model):
                 message += "\n"
                 message += "Equipe CCBM SHOP"
             else:
-                # Si pas de facture, utilise le montant de la commande
+                # Si pas de facture confirmée, utilise le montant de la commande
                 message += f"Montant commande : {self.amount_total:.0f} F CFA\n\n"
             
             # Ajoute un message selon l'état
-            if new_state == 'sale':
+            # IMPORTANT: La facture n'est envoyée que si la commande est en 'sale' ou 'done'
+            if new_state in ['sale', 'done']:
                 # Génère le PDF de la facture et crée le bouton de téléchargement
                 invoice_pdf_url = None
                 
-                if invoice:
-                    # Génère le PDF de la facture
-                    try:
-                        report = None
-                        report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
-                        
-                        for report_name in report_names:
-                            try:
-                                report = self.env['ir.actions.report']._get_report_from_name(report_name)
-                                if report and report.exists() and report.id:
-                                    break
-                                else:
-                                    report = None
-                            except:
-                                report = None
-                                continue
-                        
-                        if not report or not report.exists():
-                            report = self.env['ir.actions.report'].search([
-                                ('report_name', 'in', report_names),
-                                ('model', '=', 'account.move')
-                            ], limit=1)
-                        
-                        if report and report.exists():
-                            invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
-                            
-                            if invoice_pdf_content:
-                                # Crée un attachment public pour le PDF de la facture
-                                invoice_attachment = self.env['ir.attachment'].create({
-                                    'name': f"{invoice.name}.pdf",
-                                    'type': 'binary',
-                                    'datas': base64.b64encode(invoice_pdf_content),
-                                    'res_model': 'account.move',
-                                    'res_id': invoice.id,
-                                    'public': True,
-                                })
-                                
-                                # Génère l'URL publique de téléchargement
-                                base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
-                                invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
-                                _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
-                    except Exception as e:
-                        _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+                # Vérifie que la facture existe et est confirmée
+                if invoice and invoice.state == 'posted':
+                    invoice_pdf_url = self._get_invoice_pdf_url(invoice)
                 
                 # Prépare le message avec la facture
                 message += "\nMerci pour votre confiance."
                 message += "\n\nÉquipe CCTS"
                 
-                # Si on a une facture avec PDF, envoie un message interactif avec bouton
+                # Si on a une facture confirmée avec PDF, envoie un message interactif avec bouton
                 if invoice_pdf_url and invoice:
                     buttons = [{
                         "type": "reply",
@@ -494,59 +520,14 @@ class SaleOrder(models.Model):
                         buttons=buttons
                     )
                 else:
-                    # Envoie le message texte simple
-                    result = whatsapp_config.send_text_to_partner(
-                        partner_id=self.partner_id.id,
-                        message_text=message
-                    )
-            elif new_state == 'done':
-                message += "Merci pour votre confiance.\n\n"
-                
-                # Si une facture existe, envoie un message interactif avec validation
-                if invoice:
-                    message += "Souhaitez-vous valider cette facture ?"
-                    
-                    # Prépare les boutons pour validation
-                    buttons = [
-                        {
-                            "type": "reply",
-                            "reply": {
-                                "id": f"btn_validate_invoice_{invoice.id}",
-                                "title": "Valider"
-                            }
-                        },
-                        {
-                            "type": "reply",
-                            "reply": {
-                                "id": f"btn_reject_invoice_{invoice.id}",
-                                "title": "Rejeter"
-                            }
-                        }
-                    ]
-                    
-                    # Envoie le message interactif
-                    phone = whatsapp_config._validate_phone_number(phone)
-                    result = whatsapp_config.send_interactive_message(
-                        to_phone=phone,
-                        body_text=message,
-                        buttons=buttons
-                    )
-                    
-                    # Met à jour la facture pour indiquer qu'un message de validation a été envoyé
-                    if result.get('success'):
-                        invoice.write({
-                            'x_whatsapp_validation_sent': True,
-                            'x_whatsapp_validation_sent_date': fields.Datetime.now()
-                        })
-                else:
-                    # Pas de facture, envoie juste le message texte
-                    message += "Merci de votre confiance !"
+                    # Envoie le message texte simple (pas de facture confirmée ou PDF non disponible)
                     result = whatsapp_config.send_text_to_partner(
                         partner_id=self.partner_id.id,
                         message_text=message
                     )
             else:
-                # Autres états, envoie le message texte simple
+                # Autres états (draft, sent, cancel), envoie le message texte simple
+                # Pas d'envoi de facture pour ces états
                 result = whatsapp_config.send_text_to_partner(
                     partner_id=self.partner_id.id,
                     message_text=message
@@ -563,7 +544,7 @@ class SaleOrder(models.Model):
                 _logger.warning("Échec de l'envoi du message WhatsApp d'état pour la commande %s: %s", self.name, result.get('error', 'Erreur inconnue'))
                 
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi du message WhatsApp d'état pour la commande %s", self.name)
+            _logger.warning("Envoi WhatsApp d'état pour la commande %s non effectué (non bloquant): %s", self.name, str(e))
             # Ne lève pas d'exception pour ne pas bloquer la modification de la commande
 
     def action_send_order_validation_whatsapp(self):
@@ -678,7 +659,7 @@ class SaleOrder(models.Model):
         
         try:
             # Construit le message avec les détails de la commande
-            details_message = f"📋 Détails de la commande {self.name}\n\n"
+            details_message = f"Détails de la commande {self.name}\n\n"
             
             # Informations générales
             details_message += f"Client : {self.partner_id.name if self.partner_id else 'N/A'}\n"
@@ -688,6 +669,7 @@ class SaleOrder(models.Model):
             
             # Calcule le montant non payé et mentionne la facture si elle existe
             unpaid_amount = self.amount_total
+            # Récupère toutes les factures confirmées pour calculer les montants
             invoices = self.env['account.move'].search([
                 ('invoice_origin', '=', self.name),
                 ('move_type', 'in', ['out_invoice', 'out_refund']),
@@ -710,7 +692,7 @@ class SaleOrder(models.Model):
             
             # Liste des produits
             if self.order_line:
-                details_message += "📦 Produits :\n"
+                details_message += "Produits :\n"
                 details_message += "─" * 30 + "\n"
                 
                 for line in self.order_line:
@@ -782,9 +764,11 @@ class SaleOrder(models.Model):
                     ], limit=1)
                 
                 if report and report.exists():
-                    # Génère le PDF
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
-                    
+                    try:
+                        pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    except (OSError, ConnectionError) as e:
+                        _logger.info("Génération PDF commande %s indisponible (réseau): %s", self.name, str(e))
+                        pdf_content = None
                     if pdf_content:
                         # Crée un attachment public pour le PDF
                         attachment = self.env['ir.attachment'].create({
@@ -803,58 +787,13 @@ class SaleOrder(models.Model):
             except Exception as e:
                 _logger.warning("Erreur lors de la génération du PDF pour la commande %s: %s", self.name, str(e))
             
-            # Cherche les factures associées à la commande
+            # Cherche les factures confirmées associées à la commande
+            invoice = self._get_confirmed_invoice()
             invoice_pdf_url = None
-            invoices = self.env['account.move'].search([
-                ('invoice_origin', '=', self.name),
-                ('move_type', 'in', ['out_invoice', 'out_refund']),
-                ('state', '=', 'posted')
-            ], order='create_date desc', limit=1)
             
-            if invoices:
-                # Génère le PDF de la facture la plus récente
-                try:
-                    report = None
-                    report_names = ['account.report_invoice', 'account.report_invoice_with_payments']
-                    
-                    for report_name in report_names:
-                        try:
-                            report = self.env['ir.actions.report']._get_report_from_name(report_name)
-                            if report and report.exists() and report.id:
-                                break
-                            else:
-                                report = None
-                        except:
-                            report = None
-                            continue
-                    
-                    if not report or not report.exists():
-                        report = self.env['ir.actions.report'].search([
-                            ('report_name', 'in', report_names),
-                            ('model', '=', 'account.move')
-                        ], limit=1)
-                    
-                    if report and report.exists():
-                        invoice = invoices[0]
-                        invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
-                        
-                        if invoice_pdf_content:
-                            # Crée un attachment public pour le PDF de la facture
-                            invoice_attachment = self.env['ir.attachment'].create({
-                                'name': f"{invoice.name}.pdf",
-                                'type': 'binary',
-                                'datas': base64.b64encode(invoice_pdf_content),
-                                'res_model': 'account.move',
-                                'res_id': invoice.id,
-                                'public': True,
-                            })
-                            
-                            # Génère l'URL publique de téléchargement
-                            base_url = self.env['ir.config_parameter'].sudo().get_param('web.base.url')
-                            invoice_pdf_url = f"{base_url}/web/content/{invoice_attachment.id}?download=true"
-                            _logger.info("URL PDF facture générée pour la commande %s: %s", self.name, invoice_pdf_url)
-                except Exception as e:
-                    _logger.warning("Erreur lors de la génération du PDF de la facture pour la commande %s: %s", self.name, str(e))
+            if invoice:
+                # Génère l'URL du PDF de la facture
+                invoice_pdf_url = self._get_invoice_pdf_url(invoice)
             
             # Crée les boutons pour le message interactif
             buttons = []
@@ -870,11 +809,11 @@ class SaleOrder(models.Model):
                 })
             
             # Bouton "Télécharger facture" si disponible (priorité sur le devis si on a les deux)
-            if invoice_pdf_url:
+            if invoice_pdf_url and invoice:
                 buttons.append({
                     "type": "reply",
                     "reply": {
-                        "id": f"btn_download_invoice_{invoices[0].id}",
+                        "id": f"btn_download_invoice_{invoice.id}",
                         "title": "Télécharger facture"
                     }
                 })

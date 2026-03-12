@@ -149,8 +149,13 @@ class SaleOrder(models.Model):
                 ], limit=1)
             
             if report and report.exists():
-                invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
-                
+                invoice_pdf_content = None
+                try:
+                    invoice_pdf_content, _unused = report._render_qweb_pdf(invoice.id)
+                except (OSError, ConnectionError) as e:
+                    _logger.info("Génération PDF facture %s indisponible (réseau): %s", invoice.name, str(e))
+                except Exception as e:
+                    _logger.debug("Génération PDF facture %s échouée: %s", invoice.name, str(e))
                 if invoice_pdf_content:
                     # Crée un attachment public pour le PDF de la facture
                     invoice_attachment = self.env['ir.attachment'].create({
@@ -255,8 +260,11 @@ class SaleOrder(models.Model):
         
         # Récupère la configuration WhatsApp active (déjà vérifiée dans _should_send_whatsapp_notification)
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not whatsapp_config:
+            _logger.debug("Commande %s: pas de config WhatsApp active, notification de création non envoyée", self.name)
+            return
         phone = self.partner_id.phone or self.partner_id.mobile
-        
+
         try:
             # Prépare un message avec 3 boutons : Valider, Annuler, Voir détail
             message = f"Bonjour {self.partner_id.name},\n\nVotre commande {self.name} a été créée avec succès.\n\nEquipe CCBM SHOP"
@@ -286,9 +294,11 @@ class SaleOrder(models.Model):
                     ], limit=1)
                 
                 if report and report.exists():
-                    # Génère le PDF
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
-                    
+                    try:
+                        pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    except (OSError, ConnectionError) as e:
+                        _logger.info("Génération PDF commande %s indisponible (réseau): %s", self.name, str(e))
+                        pdf_content = None
                     if pdf_content:
                         # Crée un attachment public pour le PDF
                         attachment = self.env['ir.attachment'].create({
@@ -387,7 +397,7 @@ class SaleOrder(models.Model):
                 # Ne marque pas comme envoyé si l'envoi a échoué, pour permettre une nouvelle tentative
                 
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi du message WhatsApp de création pour la commande %s", self.name)
+            _logger.warning("Envoi WhatsApp création commande %s non effectué (non bloquant): %s", self.name, str(e))
             # Ne lève pas d'exception pour ne pas bloquer la création de la commande
 
     def write(self, vals):
@@ -437,10 +447,13 @@ class SaleOrder(models.Model):
         
         # Récupère la configuration WhatsApp active (déjà vérifiée dans _should_send_whatsapp_notification)
         whatsapp_config = self.env['whatsapp.config'].search([('is_active', '=', True)], limit=1)
+        if not whatsapp_config:
+            _logger.debug("Commande %s: pas de config WhatsApp active, notification d'état non envoyée", self.name)
+            return
         phone = self.partner_id.phone or self.partner_id.mobile
-        
+
         try:
-            # Nettoie le numéro de téléphone
+            # Nettoie le numéro de téléphone (peut lever ValidationError → capturé ci-dessous)
             phone = whatsapp_config._validate_phone_number(phone)
             
             # Prépare le message avec l'état
@@ -531,7 +544,7 @@ class SaleOrder(models.Model):
                 _logger.warning("Échec de l'envoi du message WhatsApp d'état pour la commande %s: %s", self.name, result.get('error', 'Erreur inconnue'))
                 
         except Exception as e:
-            _logger.exception("Erreur lors de l'envoi du message WhatsApp d'état pour la commande %s", self.name)
+            _logger.warning("Envoi WhatsApp d'état pour la commande %s non effectué (non bloquant): %s", self.name, str(e))
             # Ne lève pas d'exception pour ne pas bloquer la modification de la commande
 
     def action_send_order_validation_whatsapp(self):
@@ -751,9 +764,11 @@ class SaleOrder(models.Model):
                     ], limit=1)
                 
                 if report and report.exists():
-                    # Génère le PDF
-                    pdf_content, _unused = report._render_qweb_pdf(self.id)
-                    
+                    try:
+                        pdf_content, _unused = report._render_qweb_pdf(self.id)
+                    except (OSError, ConnectionError) as e:
+                        _logger.info("Génération PDF commande %s indisponible (réseau): %s", self.name, str(e))
+                        pdf_content = None
                     if pdf_content:
                         # Crée un attachment public pour le PDF
                         attachment = self.env['ir.attachment'].create({

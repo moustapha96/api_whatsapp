@@ -41,5 +41,5 @@ class WhatsappCron(models.Model):
             try:
                 invoice._send_unpaid_invoice_reminder()
             except Exception as e:
-                _logger.exception("Erreur lors de l'envoi du rappel pour la facture %s: %s", invoice.name, str(e))
+                _logger.warning("Rappel WhatsApp facture %s non envoyé (non bloquant): %s", invoice.name, str(e))
 

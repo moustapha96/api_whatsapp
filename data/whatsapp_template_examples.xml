@@ -8,18 +8,20 @@
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template pour envoyer un message texte (ex: notification de facture). À créer dans Meta Business Suite : nom = invoice_message, langue = fr. Corps du template : {{1}} (un seul paramètre = le message complet).</field>
+        <field name="body_text">Message : {{1}}</field>
+        <field name="description">Template pour envoyer un message texte (ex: notification de facture). Envoyé vers WhatsApp Business via « Envoyer les templates vers WhatsApp ».</field>
         <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Message"}], "header": [], "buttons": []}</field>
     </record>
 
-    <!-- Template 0: Message texte simple (RECOMMANDÉ) -->
+    <!-- Template 0: Message texte simple -->
     <record id="template_simple_text_message" model="whatsapp.template">
         <field name="name">Message texte simple</field>
         <field name="wa_name">simple_text_message</field>
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template simple pour envoyer des messages texte à tout moment, même hors de la fenêtre de 24h. À créer dans Meta Business Suite avec le nom 'simple_text_message'. Message recommandé: 'Bonjour, ceci est un message simple que vous pouvez envoyer à tout moment. Merci.'</field>
+        <field name="body_text">Bonjour, ceci est un message simple que vous pouvez envoyer à tout moment. Merci.</field>
+        <field name="description">Template simple sans variable. Envoyer vers WhatsApp via le bouton dans la configuration.</field>
     </record>
 
     <!-- Template 1: Message de bienvenue simple -->
@@ -29,7 +31,8 @@
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template simple pour envoyer un message de bienvenue. À créer dans Meta Business Suite avec le nom 'welcome_message'</field>
+        <field name="body_text">Bonjour et bienvenue ! Nous sommes à votre disposition.</field>
+        <field name="description">Template de bienvenue sans variable.</field>
     </record>
 
     <!-- Template 2: Notification simple -->
@@ -39,7 +42,8 @@
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template pour envoyer des notifications simples. À créer dans Meta Business Suite avec le nom 'simple_notification'</field>
+        <field name="body_text">Notification : vous avez un nouveau message.</field>
+        <field name="description">Template de notification simple.</field>
     </record>
 
     <!-- Template 3: Message avec paramètres -->
@@ -49,7 +53,9 @@
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template avec paramètres pour personnaliser le message. Exemple: 'Bonjour {{1}}, votre commande {{2}} est prête.' À créer dans Meta Business Suite.</field>
+        <field name="body_text">Bonjour {{1}}, votre commande {{2}} est prête.</field>
+        <field name="description">Template avec 2 paramètres : nom et numéro de commande.</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Nom"}, {"index": 2, "type": "text", "label": "Commande"}], "header": [], "buttons": []}</field>
     </record>
 
     <!-- Template 4: Confirmation de commande -->
@@ -59,7 +65,8 @@
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template pour confirmer une commande. À créer dans Meta Business Suite avec le nom 'order_confirmation'</field>
+        <field name="body_text">Votre commande a été enregistrée. Merci pour votre confiance.</field>
+        <field name="description">Template de confirmation de commande.</field>
     </record>
 
     <!-- Template 5: Rappel de rendez-vous -->
@@ -69,7 +76,8 @@
         <field name="language_code">fr</field>
         <field name="category">UTILITY</field>
         <field name="status">APPROVED</field>
-        <field name="description">Template pour rappeler un rendez-vous. À créer dans Meta Business Suite avec le nom 'appointment_reminder'</field>
+        <field name="body_text">Rappel : vous avez un rendez-vous prévu. Merci de confirmer votre présence.</field>
+        <field name="description">Template de rappel de rendez-vous.</field>
     </record>
 </odoo>
 

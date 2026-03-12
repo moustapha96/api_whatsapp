@@ -33,8 +33,15 @@
                             icon="fa-check-circle"/>
                     <button name="action_sync_templates" 
                             type="object" 
-                            string="Synchroniser les templates"
-                            icon="fa-refresh"/>
+                            string="Synchroniser depuis WhatsApp"
+                            icon="fa-download"
+                            title="Récupère les templates depuis WhatsApp Business (Meta)"/>
+                    <button name="action_push_templates" 
+                            type="object" 
+                            string="Envoyer les templates vers WhatsApp"
+                            icon="fa-upload"
+                            class="oe_highlight"
+                            title="Envoie tous les templates Odoo vers WhatsApp Business (Meta)"/>
                 </header>
                 <sheet>
                     <group>

@@ -34,7 +34,12 @@ class WhatsappTemplate(models.Model):
         default="APPROVED",
     )
     description = fields.Text("Description / Notes")
-    
+
+    body_text = fields.Text(
+        string="Texte du corps (Meta)",
+        help="Texte du template avec variables {{1}}, {{2}}, etc. Utilisé pour envoyer le template vers WhatsApp Business. Exemple : « Votre facture {{1}} est prête » ou « {{1}} » pour un seul paramètre."
+    )
+
     # Structure des paramètres du template
     parameter_structure = fields.Text(
         string="Structure des paramètres (JSON)",
@@ -96,3 +101,50 @@ class WhatsappTemplate(models.Model):
             return json.loads(self.parameter_structure)
         except json.JSONDecodeError:
             return {}
+
+    def _get_body_text_for_meta(self):
+        """Retourne le texte du corps pour l'API Meta (avec {{1}}, {{2}}, etc.)."""
+        self.ensure_one()
+        if self.body_text and self.body_text.strip():
+            return self.body_text.strip()
+        structure = self.get_parameter_structure()
+        body_params = structure.get("body") or []
+        if not body_params:
+            return "Message"
+        return " ".join("{{%d}}" % p.get("index", i + 1) for i, p in enumerate(body_params))
+
+    def _build_meta_create_payload(self):
+        """Construit le payload pour créer le template dans WhatsApp Business (Meta).
+        Référence: POST /{WABA_ID}/message_templates
+        Doc Meta: category et type en minuscules ("utility", "body"), parameter_format si variables.
+        """
+        self.ensure_one()
+        body_text = self._get_body_text_for_meta()
+        structure = self.get_parameter_structure()
+        body_params = structure.get("body") or []
+        example_body = []
+        if body_params:
+            example_body = [[str("Exemple%d" % (i + 1)) for i in range(len(body_params))]]
+        body_component = {
+            "type": "body",
+            "text": body_text,
+        }
+        if example_body:
+            body_component["example"] = {"body_text": example_body}
+        components = [body_component]
+        lang = (self.language_code or "fr").strip() or "fr"
+        if lang.lower().startswith("fr"):
+            lang = "fr_FR"
+        category = (self.category or "UNKNOWN").strip().upper()
+        if category not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
+            category = "UTILITY"
+        category_lower = category.lower()
+        payload = {
+            "name": self.wa_name,
+            "language": lang,
+            "category": category_lower,
+            "components": components,
+        }
+        if body_params:
+            payload["parameter_format"] = "positional"
+        return payload

@@ -40,6 +40,9 @@
                         <field name="status"/>
                     </group>
                     <group>
+                        <field name="body_text" placeholder="Ex: {{1}} ou Bonjour {{1}}, votre facture {{2}}..."/>
+                    </group>
+                    <group>
                         <field name="description"/>
                     </group>
                 </sheet>

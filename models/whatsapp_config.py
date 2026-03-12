@@ -951,45 +951,50 @@ class WhatsappConfig(models.Model):
             raise ValidationError(_("Erreur lors de la vérification : %s") % str(e))
 
     def action_sync_templates(self):
-        """Synchronise les templates depuis l'API Meta"""
+        """Synchronise les templates depuis l'API Meta (WhatsApp Business → Odoo)"""
         self.ensure_one()
         try:
             # Récupère les templates depuis l'API Meta
             url = f"https://graph.facebook.com/v21.0/{self.whatsapp_business_account_id}/message_templates"
             headers = self._get_headers()
-            
+
             response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             data = response.json()
-            
+
             templates = data.get('data', [])
             created_count = 0
             updated_count = 0
-            
+
             for template_data in templates:
                 wa_name = template_data.get('name', '')
                 status = template_data.get('status', 'UNKNOWN')
                 category = template_data.get('category', 'UNKNOWN')
-                
+
                 # Extrait le code langue
                 language = template_data.get('language', {})
                 if isinstance(language, dict):
                     language_code = language.get('code', 'fr')
                 else:
                     language_code = str(language) if language else 'fr'
-                
-                # Cherche le template existant
+
+                # Cherche le template existant (même nom + langue pour unicité)
                 template = self.env['whatsapp.template'].search([
-                    ('wa_name', '=', wa_name)
+                    ('wa_name', '=', wa_name),
+                    ('language_code', '=', language_code),
                 ], limit=1)
-                
+                if not template:
+                    template = self.env['whatsapp.template'].search([
+                        ('wa_name', '=', wa_name),
+                    ], limit=1)
+
                 template_vals = {
                     'wa_name': wa_name,
                     'status': status,
                     'category': category,
                     'language_code': language_code,
                 }
-                
+
                 if template:
                     template.write(template_vals)
                     updated_count += 1
@@ -997,7 +1002,7 @@ class WhatsappConfig(models.Model):
                     template_vals['name'] = wa_name
                     self.env['whatsapp.template'].create(template_vals)
                     created_count += 1
-            
+
             message = _('Synchronisation terminée : %d créés, %d mis à jour') % (created_count, updated_count)
             return {
                 'type': 'ir.actions.client',
@@ -1013,6 +1018,61 @@ class WhatsappConfig(models.Model):
             raise ValidationError(_("Erreur lors de la synchronisation des templates : %s") % str(e))
         except Exception as e:
             raise ValidationError(_("Erreur lors de la synchronisation : %s") % str(e))
+
+    def action_push_templates(self):
+        """Envoie tous les templates Odoo (avec Texte du corps renseigné) vers WhatsApp Business (Meta)."""
+        self.ensure_one()
+        if not self.whatsapp_business_account_id:
+            raise ValidationError(_("WhatsApp Business Account ID manquant dans la configuration."))
+        url = f"https://graph.facebook.com/v25.0/{self.whatsapp_business_account_id}/message_templates"
+        headers = self._get_headers()
+        all_templates = self.env['whatsapp.template'].search([])
+        # N'envoyer que les templates qui ont un corps défini (évite "Invalid parameter" pour templates sans body_text)
+        templates = all_templates.filtered(lambda t: t.body_text and t.body_text.strip())
+        skipped = len(all_templates) - len(templates)
+        pushed = 0
+        errors = []
+        for tpl in templates:
+            try:
+                payload = tpl._build_meta_create_payload()
+                response = requests.post(
+                    url, headers=headers, data=json.dumps(payload), timeout=30
+                )
+                data = response.json() if response.text else {}
+                if response.status_code == 200 and not data.get("error"):
+                    pushed += 1
+                    _logger.info("Template %s envoyé vers WhatsApp Business.", tpl.wa_name)
+                else:
+                    err = data.get("error", {})
+                    msg = err.get("message", response.text or str(response.status_code))
+                    code = err.get("code")
+                    if code == 100 and ("exists" in msg.lower() or "déjà" in msg.lower() or "already" in msg.lower()):
+                        pushed += 1
+                        _logger.info("Template %s existe déjà sur WhatsApp Business.", tpl.wa_name)
+                    else:
+                        _logger.warning("Template %s - Meta error: %s - Payload: %s", tpl.wa_name, msg, json.dumps(payload, ensure_ascii=False))
+                        errors.append("%s: %s" % (tpl.wa_name, msg))
+            except Exception as e:
+                errors.append("%s: %s" % (tpl.wa_name, str(e)))
+        if errors:
+            raise ValidationError(
+                _("Envoi des templates terminé. Envoyés : %d. Erreurs : %s")
+                % (pushed, " | ".join(errors[:8]))
+            )
+        message = _("Templates envoyés vers WhatsApp Business : %d.") % pushed
+        if skipped:
+            message += " " + _("%d template(s) ignoré(s) (sans « Texte du corps »). Renseignez le champ pour les envoyer.") % skipped
+        message += " " + _("Synchronisez depuis WhatsApp pour mettre à jour les statuts.")
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Succès'),
+                'message': message,
+                'type': 'success',
+                'sticky': False,
+            }
+        }
 
     def action_fetch_sent_messages(self):
         """Récupère les messages envoyés depuis l'API"""

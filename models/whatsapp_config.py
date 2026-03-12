@@ -3,6 +3,7 @@ from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
 from datetime import timedelta
 import logging
+import re
 import requests
 import json
 
@@ -946,69 +947,124 @@ class WhatsappConfig(models.Model):
         except Exception as e:
             raise ValidationError(_("Erreur lors de la vérification : %s") % str(e))
 
+    def _parse_body_parameters(self, body_text):
+        """À partir du texte du corps (ex: 'Bonjour {{1}}, commande {{2}}.'), construit
+        la structure des paramètres pour Odoo (body avec index 1, 2... ou param_name)."""
+        if not body_text or not isinstance(body_text, str):
+            return None
+        # Positionnel {{1}}, {{2}}, ...
+        positional = re.findall(r'\{\{(\d+)\}\}', body_text)
+        if positional:
+            indices = sorted(set(int(x) for x in positional))
+            return {
+                "body": [{"index": i, "type": "text", "label": _("Paramètre %d") % i} for i in indices],
+                "header": [],
+                "buttons": [],
+            }
+        # Nommés {{first_name}}, {{order_id}}, ...
+        named = re.findall(r'\{\{([a-z_][a-z0-9_]*)\}\}', body_text, re.I)
+        if named:
+            # Garder l'ordre d'apparition
+            seen = set()
+            order = []
+            for x in named:
+                if x.lower() not in seen:
+                    seen.add(x.lower())
+                    order.append(x)
+            return {
+                "body": [{"index": i + 1, "type": "text", "label": name, "param_name": name} for i, name in enumerate(order)],
+                "header": [],
+                "buttons": [],
+            }
+        return None
+
     def action_sync_templates(self):
-        """Synchronise les templates depuis l'API Meta (WhatsApp Business → Odoo)"""
+        """Synchronise les templates depuis l'API Meta (WhatsApp Business → Odoo).
+        Récupère nom, statut, catégorie, langue, corps (body_text) et déduit la structure des paramètres."""
         self.ensure_one()
+        if not self.whatsapp_business_account_id:
+            raise ValidationError(_("WhatsApp Business Account ID manquant dans la configuration."))
         try:
-            # Récupère les templates depuis l'API Meta
-            url = f"https://graph.facebook.com/v21.0/{self.whatsapp_business_account_id}/message_templates"
+            url = f"https://graph.facebook.com/v23.0/{self.whatsapp_business_account_id}/message_templates"
             headers = self._get_headers()
-
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-
-            templates = data.get('data', [])
             created_count = 0
             updated_count = 0
 
-            for template_data in templates:
-                wa_name = template_data.get('name', '')
-                status = template_data.get('status', 'UNKNOWN')
-                category = template_data.get('category', 'UNKNOWN')
+            while url:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                templates = data.get("data", [])
+                if not templates:
+                    break
 
-                # Extrait le code langue
-                language = template_data.get('language', {})
-                if isinstance(language, dict):
-                    language_code = language.get('code', 'fr')
-                else:
-                    language_code = str(language) if language else 'fr'
+                for template_data in templates:
+                    wa_name = (template_data.get("name") or "").strip()
+                    if not wa_name:
+                        continue
+                    status = (template_data.get("status") or "UNKNOWN").strip().upper()
+                    if status not in ("APPROVED", "PENDING", "REJECTED", "DISABLED"):
+                        status = "UNKNOWN"
+                    category = (template_data.get("category") or "UNKNOWN").strip().upper()
+                    if category not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
+                        category = "UNKNOWN"
 
-                # Cherche le template existant (même nom + langue pour unicité)
-                template = self.env['whatsapp.template'].search([
-                    ('wa_name', '=', wa_name),
-                    ('language_code', '=', language_code),
-                ], limit=1)
-                if not template:
-                    template = self.env['whatsapp.template'].search([
-                        ('wa_name', '=', wa_name),
+                    language = template_data.get("language", {})
+                    if isinstance(language, dict):
+                        language_code = (language.get("code") or "fr").strip()
+                    else:
+                        language_code = str(language).strip() if language else "fr"
+
+                    body_text = None
+                    components = template_data.get("components") or []
+                    for comp in components:
+                        ctype = (comp.get("type") or "").strip().lower()
+                        if ctype == "body":
+                            body_text = (comp.get("text") or "").strip()
+                            break
+                    if not body_text:
+                        body_text = ""
+
+                    parameter_structure = self._parse_body_parameters(body_text)
+                    parameter_structure_json = json.dumps(parameter_structure) if parameter_structure else None
+
+                    template_vals = {
+                        "wa_name": wa_name,
+                        "status": status,
+                        "category": category,
+                        "language_code": language_code,
+                        "body_text": body_text or None,
+                        "parameter_structure": parameter_structure_json,
+                    }
+
+                    template = self.env["whatsapp.template"].search([
+                        ("wa_name", "=", wa_name),
+                        ("language_code", "=", language_code),
                     ], limit=1)
+                    if not template:
+                        template = self.env["whatsapp.template"].search([("wa_name", "=", wa_name)], limit=1)
 
-                template_vals = {
-                    'wa_name': wa_name,
-                    'status': status,
-                    'category': category,
-                    'language_code': language_code,
-                }
+                    if template:
+                        template.write(template_vals)
+                        updated_count += 1
+                    else:
+                        template_vals["name"] = wa_name.replace("_", " ").strip() or wa_name
+                        self.env["whatsapp.template"].create(template_vals)
+                        created_count += 1
 
-                if template:
-                    template.write(template_vals)
-                    updated_count += 1
-                else:
-                    template_vals['name'] = wa_name
-                    self.env['whatsapp.template'].create(template_vals)
-                    created_count += 1
+                paging = data.get("paging") or {}
+                url = paging.get("next")
 
-            message = _('Synchronisation terminée : %d créés, %d mis à jour') % (created_count, updated_count)
+            message = _("Synchronisation terminée : %d créé(s), %d mis à jour.") % (created_count, updated_count)
             return {
-                'type': 'ir.actions.client',
-                'tag': 'display_notification',
-                'params': {
-                    'title': _('Succès'),
-                    'message': message,
-                    'type': 'success',
-                    'sticky': False,
-                }
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Succès"),
+                    "message": message,
+                    "type": "success",
+                    "sticky": False,
+                },
             }
         except requests.exceptions.RequestException as e:
             raise ValidationError(_("Erreur lors de la synchronisation des templates : %s") % str(e))

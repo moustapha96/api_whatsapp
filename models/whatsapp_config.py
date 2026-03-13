@@ -719,6 +719,29 @@ class WhatsappConfig(models.Model):
         
         return data
 
+    def _resolve_template_content(self, template_name, components):
+        """Reconstruit le texte final du message en substituant les valeurs des paramètres
+        dans le body_text du template Odoo ({{1}}, {{2}}, etc.).
+        Retourne le texte résolu, ou 'Template: <name>' si le template est introuvable."""
+        try:
+            tpl = self.env['whatsapp.template'].search([('wa_name', '=', template_name)], limit=1)
+            body = tpl.body_text if tpl and tpl.body_text else None
+            if not body:
+                return f"Template: {template_name}"
+            # Extrait les valeurs du composant body
+            params = []
+            for comp in (components or []):
+                if comp.get('type') == 'body':
+                    for p in comp.get('parameters', []):
+                        params.append(p.get('text', ''))
+                    break
+            # Substitue {{1}}, {{2}}, ...
+            for i, val in enumerate(params, start=1):
+                body = body.replace('{{%d}}' % i, str(val))
+            return body
+        except Exception:
+            return f"Template: {template_name}"
+
     def send_template_message(
         self,
         to_phone,
@@ -878,12 +901,15 @@ class WhatsappConfig(models.Model):
             if contacts:
                 contact_info = contacts[0]
 
+        # Reconstruit le texte final du message en substituant les paramètres dans le body_text
+        resolved_content = self._resolve_template_content(template_name, components)
+
         message_record = self.env["whatsapp.message"].create({
             "config_id": self.id,
             "direction": "out",
             "wa_message_id": message_id,
             "phone": to_phone,
-            "content": f"Template: {template_name}",
+            "content": resolved_content,
             "message_type": "template",
             "status": status,
             "wa_status": error_message or "sent",

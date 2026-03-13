@@ -215,14 +215,13 @@ class WhatsappTemplate(models.Model):
         category = (self.category or "UNKNOWN").strip().upper()
         if category not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
             category = "UTILITY"
-        category_lower = category.lower()
         name_safe = (self.wa_name or "").lower().replace(" ", "_").strip()
         payload = {
             "name": name_safe or "template",
             "language": lang,
-            "category": category_lower,
+            "category": category,
             "components": components,
         }
         if body_params:
-            payload["parameter_format"] = "named" if any(p.get("param_name") for p in body_params) else "positional"
+            payload["parameter_format"] = "NAMED" if any(p.get("param_name") for p in body_params) else "POSITIONAL"
         return payload

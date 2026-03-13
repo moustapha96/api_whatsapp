@@ -79,5 +79,65 @@
         <field name="body_text">Rappel : vous avez un rendez-vous prévu. Merci de confirmer votre présence.</field>
         <field name="description">Template de rappel de rendez-vous.</field>
     </record>
+
+    <!-- Template: Création de commande (utilisé par sale_order_whatsapp) -->
+    <record id="template_order_created" model="whatsapp.template">
+        <field name="name">Notification création commande</field>
+        <field name="wa_name">order_created</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">PENDING</field>
+        <field name="body_text">Bonjour {{1}}, votre commande {{2}} a ete enregistree. Montant : {{3}} F CFA. Equipe CCTS.</field>
+        <field name="description">Notification automatique envoyée lors de la création d'une commande. Paramètres : {{1}}=nom client, {{2}}=numéro commande, {{3}}=montant.</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Nom client"}, {"index": 2, "type": "text", "label": "Numéro commande"}, {"index": 3, "type": "text", "label": "Montant"}], "header": [], "buttons": []}</field>
+    </record>
+
+    <!-- Template: Changement d'état commande (utilisé par sale_order_whatsapp) -->
+    <record id="template_order_confirmed" model="whatsapp.template">
+        <field name="name">Notification état commande</field>
+        <field name="wa_name">order_confirmed</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">PENDING</field>
+        <field name="body_text">Bonjour {{1}}, votre commande {{2}} est {{3}}. Montant : {{4}} F CFA. Merci pour votre confiance. Equipe CCTS.</field>
+        <field name="description">Notification de changement d'état d'une commande. Paramètres : {{1}}=nom client, {{2}}=numéro commande, {{3}}=état, {{4}}=montant.</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Nom client"}, {"index": 2, "type": "text", "label": "Numéro commande"}, {"index": 3, "type": "text", "label": "État"}, {"index": 4, "type": "text", "label": "Montant"}], "header": [], "buttons": []}</field>
+    </record>
+
+    <!-- Template: Demande de validation commande (utilisé par action_send_order_validation_whatsapp) -->
+    <record id="template_order_validation" model="whatsapp.template">
+        <field name="name">Validation commande</field>
+        <field name="wa_name">order_validation</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">PENDING</field>
+        <field name="body_text">Bonjour, details de votre commande : Numero : {{1}} - Montant : {{2}} F CFA. Souhaitez-vous valider cette commande ?</field>
+        <field name="description">Demande de validation d'une commande. Paramètres : {{1}}=numéro commande, {{2}}=montant.</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Numéro commande"}, {"index": 2, "type": "text", "label": "Montant"}], "header": [], "buttons": []}</field>
+    </record>
+
+    <!-- Template: Facture disponible (utilisé par account_move_whatsapp) -->
+    <record id="template_invoice_notification" model="whatsapp.template">
+        <field name="name">Notification facture disponible</field>
+        <field name="wa_name">invoice_notification</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">PENDING</field>
+        <field name="body_text">Bonjour {{1}}, votre facture {{2}} d'un montant de {{3}} F CFA est disponible. Montant restant : {{4}} F CFA. Equipe CCTS.</field>
+        <field name="description">Notification d'une facture validée. Paramètres : {{1}}=nom client, {{2}}=numéro facture, {{3}}=montant total, {{4}}=montant restant.</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Nom client"}, {"index": 2, "type": "text", "label": "Numéro facture"}, {"index": 3, "type": "text", "label": "Montant total"}, {"index": 4, "type": "text", "label": "Montant restant"}], "header": [], "buttons": []}</field>
+    </record>
+
+    <!-- Template: Rappel de paiement (utilisé par account_move_whatsapp) -->
+    <record id="template_payment_reminder" model="whatsapp.template">
+        <field name="name">Rappel de paiement</field>
+        <field name="wa_name">payment_reminder</field>
+        <field name="language_code">fr</field>
+        <field name="category">UTILITY</field>
+        <field name="status">PENDING</field>
+        <field name="body_text">Bonjour {{1}}, un paiement a ete enregistre sur votre facture {{2}}. Montant restant a regler : {{3}} F CFA. Equipe CCTS.</field>
+        <field name="description">Rappel envoyé quand le montant résiduel d'une facture change. Paramètres : {{1}}=nom client, {{2}}=numéro facture, {{3}}=montant restant.</field>
+        <field name="parameter_structure">{"body": [{"index": 1, "type": "text", "label": "Nom client"}, {"index": 2, "type": "text", "label": "Numéro facture"}, {"index": 3, "type": "text", "label": "Montant restant"}], "header": [], "buttons": []}</field>
+    </record>
 </odoo>
 

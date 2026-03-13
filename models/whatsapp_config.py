@@ -236,7 +236,14 @@ class WhatsappConfig(models.Model):
                 data = response.json()
             except json.JSONDecodeError:
                 data = {"error": {"message": "Réponse invalide de l'API"}}
-            
+
+            # Normalise : si Meta renvoie une liste à la racine (format erreur non standard)
+            if isinstance(data, list):
+                first = data[0] if data else {}
+                code = first.get("code", response.status_code)
+                msg = first.get("message") or first.get("title") or f"Erreur HTTP {response.status_code}"
+                data = {"error": {"message": msg, "code": code, "type": "APIException"}}
+
             # Vérifie les erreurs dans la réponse
             if response.status_code != 200 or data.get("error"):
                 error_info = data.get("error", {})
@@ -244,7 +251,7 @@ class WhatsappConfig(models.Model):
                 error_type = error_info.get("type", "Unknown")
                 error_code = error_info.get("code", response.status_code)
                 error_subcode = error_info.get("error_subcode")
-                
+
                 # Messages d'erreur spécifiques selon le code
                 if error_code == 131047:
                     error_message = "Le numéro de téléphone n'est pas un numéro WhatsApp valide ou n'est pas inscrit sur WhatsApp"
@@ -252,24 +259,38 @@ class WhatsappConfig(models.Model):
                     error_message = "Fenêtre de 24h expirée : Vous ne pouvez envoyer des messages texte que dans les 24h après le dernier message du client. Utilisez un template WhatsApp."
                 elif error_code == 131031:
                     error_message = "Le numéro de téléphone n'est pas autorisé. Vérifiez qu'il est dans votre liste de numéros test (mode développement)"
+                elif error_code == 131049:
+                    error_message = "Message non livré : Meta a bloqué ce message pour maintenir la qualité de l'écosystème (engagement trop faible ou numéro non inscrit)"
                 elif error_code == 190:
                     error_message = "Token d'accès invalide ou expiré. Vérifiez votre access_token"
                 elif error_code == 100:
                     error_message = "Paramètres invalides. Vérifiez le format du numéro de téléphone"
-                
+
                 full_error = f"[{error_type}] {error_message} (Code: {error_code}"
                 if error_subcode:
                     full_error += f", SubCode: {error_subcode}"
                 full_error += ")"
-                
+
                 _logger.error("Erreur API WhatsApp : %s - Réponse complète: %s", full_error, response.text)
                 return None, None, response.text, full_error
-            
+
+            # Vérifie les erreurs/avertissements dans data["errors"] (format 131049 et similaires)
+            inline_errors = data.get("errors") or []
+            if inline_errors:
+                first_err = inline_errors[0] if isinstance(inline_errors, list) else {}
+                err_code = first_err.get("code")
+                err_msg = first_err.get("message") or first_err.get("title", "Erreur inconnue")
+                if err_code == 131049:
+                    err_msg = "Message non livré : Meta a bloqué ce message pour maintenir la qualité de l'écosystème"
+                full_error = f"[APIException] {err_msg} (Code: {err_code})"
+                _logger.error("Erreur API WhatsApp inline : %s - Réponse complète: %s", full_error, response.text)
+                return None, None, response.text, full_error
+
             # Extrait le message_id et les contacts selon le format de réponse Meta
             # Format attendu : {"messaging_product": "whatsapp", "contacts": [...], "messages": [{"id": "..."}]}
             message_id = None
             contacts_data = []
-            
+
             try:
                 messages = data.get("messages", [])
                 if messages:

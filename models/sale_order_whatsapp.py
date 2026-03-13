@@ -246,9 +246,13 @@ class SaleOrder(models.Model):
         return True
     
     def _send_template_or_fallback(self, whatsapp_config, phone, template_name, components, fallback_text):
-        """Envoie un template WhatsApp. Si le template n'existe pas sur Meta (132001),
-        bascule automatiquement vers invoice_message (approuvé) avec le texte complet."""
-        from odoo.exceptions import ValidationError as VE
+        """Envoie un template WhatsApp.
+        - Si 132001 (template inexistant sur Meta) : bascule vers invoice_message (approuvé).
+        - Si 131049 (Meta bloque pour qualité d'écosystème) : logue sans retry, relance.
+        - Autre erreur : relance.
+        """
+        if not whatsapp_config or not whatsapp_config.is_active:
+            raise ValidationError(_("Aucune configuration WhatsApp active."))
         try:
             return whatsapp_config.send_template_message(
                 to_phone=phone,
@@ -256,8 +260,9 @@ class SaleOrder(models.Model):
                 language_code="fr",
                 components=components,
             )
-        except VE as e:
-            if "132001" in str(e):
+        except ValidationError as e:
+            err_str = str(e)
+            if "132001" in err_str:
                 _logger.warning(
                     "Template '%s' introuvable sur Meta (#132001) — fallback vers invoice_message. "
                     "Créez le template via 'Envoyer les templates vers WhatsApp'.",
@@ -272,6 +277,13 @@ class SaleOrder(models.Model):
                         "parameters": [{"type": "text", "text": fallback_text}],
                     }],
                 )
+            if "131049" in err_str:
+                _logger.warning(
+                    "Message non livré pour %s — Meta a bloqué (131049 : qualité écosystème). "
+                    "Le destinataire n'est peut-être pas abonné ou n'engage pas avec les messages.",
+                    phone,
+                )
+                raise
             raise
 
     def _send_whatsapp_creation_notification(self):

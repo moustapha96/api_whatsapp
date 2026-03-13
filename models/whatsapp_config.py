@@ -1333,3 +1333,18 @@ class WhatsappConfig(models.Model):
             }
         except Exception as e:
             raise ValidationError(_("Erreur lors du diagnostic : %s") % str(e))
+
+    def action_send_unpaid_invoice_reminders(self):
+        """Envoie manuellement les rappels de factures impayées via WhatsApp."""
+        self.ensure_one()
+        self.env['whatsapp.cron'].send_unpaid_invoice_reminders()
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Rappels envoyés'),
+                'message': _('Les rappels de factures impayées ont été envoyés.'),
+                'type': 'success',
+                'sticky': False,
+            },
+        }

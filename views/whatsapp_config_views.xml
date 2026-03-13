@@ -70,11 +70,18 @@
                                     string="Vérifier les statuts"
                                     icon="fa-info-circle"
                                     class="btn-secondary"/>
-                            <button name="action_diagnose_message_delivery" 
-                                    type="object" 
+                            <button name="action_diagnose_message_delivery"
+                                    type="object"
                                     string="Diagnostiquer les envois"
                                     icon="fa-stethoscope"
                                     class="btn-warning"/>
+                            <button name="action_send_unpaid_invoice_reminders"
+                                    type="object"
+                                    string="Envoyer rappels factures impayées"
+                                    icon="fa-bell"
+                                    class="btn-primary"
+                                    confirm="Envoyer les rappels WhatsApp pour toutes les factures impayées ?"
+                                    title="Déclenche manuellement l'envoi des rappels de factures impayées"/>
                         </group>
                     </group>
                     <group string="Identifiants Meta">

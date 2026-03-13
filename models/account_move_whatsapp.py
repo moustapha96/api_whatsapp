@@ -163,11 +163,12 @@ class AccountMove(models.Model):
                     ],
                 }
             ]
-            result = whatsapp_config.send_template_message(
-                to_phone=phone,
-                template_name="payment_reminder",
-                language_code="fr",
-                components=components,
+            fallback_text = (
+                f"Bonjour {self.partner_id.name}, un paiement a ete enregistre sur votre facture {self.name}. "
+                f"Montant restant a regler : {new_residual:.0f} F CFA. Equipe CCTS."
+            )
+            result = self._send_template_or_fallback(
+                whatsapp_config, phone, "payment_reminder", components, fallback_text
             )
             if not isinstance(result, dict) or result.get('success') is not False:
                 self.write({
@@ -209,11 +210,13 @@ class AccountMove(models.Model):
                     ],
                 }
             ]
-            result = whatsapp_config.send_template_message(
-                to_phone=phone,
-                template_name="invoice_notification",
-                language_code="fr",
-                components=components,
+            fallback_text = (
+                f"Bonjour {self.partner_id.name}, votre facture {self.name} "
+                f"d'un montant de {self.amount_total:.0f} F CFA est disponible. "
+                f"Montant restant : {self.amount_residual:.0f} F CFA. Equipe CCTS."
+            )
+            result = self._send_template_or_fallback(
+                whatsapp_config, phone, "invoice_notification", components, fallback_text
             )
 
             conversation = self.env['whatsapp.conversation'].search([
@@ -311,6 +314,34 @@ class AccountMove(models.Model):
                 'x_whatsapp_invoice_sent_date': fields.Datetime.now()
             })
             _logger.info("Facture %s marquée comme envoyée par WhatsApp", self.name)
+
+    def _send_template_or_fallback(self, whatsapp_config, phone, template_name, components, fallback_text):
+        """Envoie un template WhatsApp. Si le template n'existe pas sur Meta (132001),
+        bascule automatiquement vers le template invoice_message (approuvé) avec le texte complet."""
+        try:
+            return whatsapp_config.send_template_message(
+                to_phone=phone,
+                template_name=template_name,
+                language_code="fr",
+                components=components,
+            )
+        except ValidationError as e:
+            if "132001" in str(e):
+                _logger.warning(
+                    "Template '%s' introuvable sur Meta (#132001) — fallback vers invoice_message. "
+                    "Créez le template via 'Envoyer les templates vers WhatsApp'.",
+                    template_name,
+                )
+                return whatsapp_config.send_template_message(
+                    to_phone=phone,
+                    template_name="invoice_message",
+                    language_code="fr",
+                    components=[{
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": fallback_text}],
+                    }],
+                )
+            raise
     
     def _send_whatsapp_invoice(self):
         """Envoie le template invoice_notification lorsque la facture est validée. Non bloquant."""
@@ -362,11 +393,13 @@ class AccountMove(models.Model):
                     ],
                 }
             ]
-            result = whatsapp_config.send_template_message(
-                to_phone=phone,
-                template_name="invoice_notification",
-                language_code="fr",
-                components=components,
+            fallback_text = (
+                f"Bonjour {self.partner_id.name}, votre facture {self.name} "
+                f"d'un montant de {self.amount_total:.0f} F CFA est disponible. "
+                f"Montant restant : {self.amount_residual:.0f} F CFA. Equipe CCTS."
+            )
+            result = self._send_template_or_fallback(
+                whatsapp_config, phone, "invoice_notification", components, fallback_text
             )
 
             conversation = self.env['whatsapp.conversation'].search([

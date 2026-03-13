@@ -166,7 +166,7 @@ class AccountMove(models.Model):
             result = whatsapp_config.send_template_message(
                 to_phone=phone,
                 template_name="payment_reminder",
-                language_code="fr_FR",
+                language_code="fr",
                 components=components,
             )
             if not isinstance(result, dict) or result.get('success') is not False:
@@ -212,7 +212,7 @@ class AccountMove(models.Model):
             result = whatsapp_config.send_template_message(
                 to_phone=phone,
                 template_name="invoice_notification",
-                language_code="fr_FR",
+                language_code="fr",
                 components=components,
             )
 
@@ -365,7 +365,7 @@ class AccountMove(models.Model):
             result = whatsapp_config.send_template_message(
                 to_phone=phone,
                 template_name="invoice_notification",
-                language_code="fr_FR",
+                language_code="fr",
                 components=components,
             )
 

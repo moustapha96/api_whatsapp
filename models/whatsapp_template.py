@@ -208,10 +208,6 @@ class WhatsappTemplate(models.Model):
 
         components = [body_component]
         lang = (self.language_code or "fr").strip()
-        if lang.lower().startswith("fr"):
-            lang = "fr_FR"
-        elif lang.lower().startswith("en"):
-            lang = "en_US"
         category = (self.category or "UNKNOWN").strip().upper()
         if category not in ("UTILITY", "MARKETING", "AUTHENTICATION"):
             category = "UTILITY"

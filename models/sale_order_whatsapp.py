@@ -272,7 +272,7 @@ class SaleOrder(models.Model):
             result = whatsapp_config.send_template_message(
                 to_phone=phone,
                 template_name="order_created",
-                language_code="fr_FR",
+                language_code="fr",
                 components=components,
             )
 
@@ -377,7 +377,7 @@ class SaleOrder(models.Model):
             result = whatsapp_config.send_template_message(
                 to_phone=phone,
                 template_name="order_confirmed",
-                language_code="fr_FR",
+                language_code="fr",
                 components=components,
             )
 
@@ -542,7 +542,7 @@ class SaleOrder(models.Model):
             result = whatsapp_config.send_template_message(
                 to_phone=phone,
                 template_name="invoice_notification",
-                language_code="fr_FR",
+                language_code="fr",
                 components=components,
             )
 
